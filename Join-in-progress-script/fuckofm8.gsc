@@ -14,11 +14,11 @@ onPlayerConnect()
     for(;;)
     {
         level waittill("connected", player);
-        player thread checkfucker();
+        player thread CheckFucker();
     }
 }
 
-checkfucker()
+CheckFucker()
 {
     if ( level.round_number < 10 ) return;
     self IPrintLnBold( "^5No joining in progress! After Round 10 Bozo" );
