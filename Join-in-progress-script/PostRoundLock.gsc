@@ -1,27 +1,29 @@
+
 #include maps\mp_utility;
 #include common_scripts\utility;
 #include maps\mp\gametypes_zm_hud_util;
 #include maps\mp\gametypes_zm_hud_message;
 
-init()
+
+Init()
 {
-    level thread onPlayerConnect();
-    self endon("disconnect");
+    SetDvar("password", "");
+    SetDvar("g_password", "");
+
+    level thread SetPasswordsOnRound(10);
 }
 
-onPlayerConnect()
+SetPasswordsOnRound(roundNumber)
 {
-    for(;;)
+  while ( true )
+  {
+    level waittill( "between_round_over");
+
+    if (level.round_number >= roundNumber)
     {
-        level waittill("connected", player);
-        player thread CheckFucker();
+        SetDvar("password", "Fucker");
+        SetDvar("g_password", "Fucker");
+        break;
     }
-}
-
-CheckFucker()
-{
-    if ( level.round_number < 10 ) return;
-    self IPrintLnBold( "^5No joining in progress! After Round 10 Bozo" );
-    wait 2;
-    kick( self GetEntityNumber() );
+  }
 }
