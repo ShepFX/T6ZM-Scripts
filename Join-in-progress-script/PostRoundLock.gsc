@@ -13,10 +13,10 @@ init()
 
 onPlayerConnect()
 {
-    for(;;)
+    for ( ;; )
     {
         level waittill( "connected", player );
-        level.locked = false; // unlock on start
+        level.locked = false;
         player thread monitorUnlockInput(player);
     }
 }
@@ -68,12 +68,11 @@ monitorUnlockInput(player)
     
     while ( true )
     {
-        if(level.locked && player adsbuttonpressed() && player ActionSlotTwoButtonPressed())
+        if ( level.locked && player adsbuttonpressed() && player ActionSlotTwoButtonPressed() )
         {
-            level.locked = false; // Clear the lock 
+            level.locked = false; 
             player iPrintLn( "Lock removed. Server is now unlocked." );
             setDvar( "g_password", "" );
-            break;
         }
         wait ( 0.1 );
     }
