@@ -1,0 +1,244 @@
+#include maps\mp\_utility;
+#include common_scripts\utility;
+#include maps\mp\gametypes_zm\_hud_util;
+#include maps\mp\gametypes_zm\_hud_message;
+
+init()
+{
+    level.highRoundOnePlayer = 0;
+    level.highRoundTwoPlayers = 0;
+    level.highRoundThreePlayers = 0;
+    level.highRoundFourPlayers = 0;
+    level.highRoundPlayersOne = "None";
+    level.highRoundPlayersTwo = "None";
+    level.highRoundPlayersThree = "None";
+    level.highRoundPlayersFour = "None";
+    
+    level thread high_round_tracker();
+    level thread onPlayerConnect();
+}
+
+onPlayerConnect()
+{
+    for(;;)
+    {
+        level waittill("connected", player);
+        player thread high_round_info();
+    }
+}
+
+high_round_tracker()
+{
+	thread high_round_info_giver();
+	gamemode = gamemodeName( getDvar( "ui_gametype" ) );
+	map = mapName( level.script );
+	if( level.script == "zm_transit" && getDvar( "ui_gametype" ) == "zsurvival" )
+		map = startLocationName( getDvar( "ui_zm_mapstartlocation" ) );
+	
+	
+	level.basepath = getDvar("fs_homepath") + "/";
+	path = level.basepath + "/logs/" + map + gamemode + "HighRound.txt";
+	file = fopen(path, "r");
+	text = fread(file);
+	fclose(file);
+	
+
+	highroundinfo = strToK( text, ";" );
+	if ( highroundinfo.size >= 8 )
+	{
+		level.highRoundOnePlayer = int( highroundinfo[ 0 ] );
+		level.highRoundTwoPlayers = int( highroundinfo[ 1 ] );
+		level.highRoundThreePlayers = int( highroundinfo[ 2 ] );
+		level.highRoundFourPlayers = int( highroundinfo[ 3 ] );
+		level.highRoundPlayersOne = highroundinfo[ 4 ];
+		level.highRoundPlayersTwo = highroundinfo[ 5 ];
+		level.highRoundPlayersThree = highroundinfo[ 6 ];
+		level.highRoundPlayersFour = highroundinfo[ 7 ];
+	}
+	else
+	{
+		
+		level.highRoundOnePlayer = 0;
+		level.highRoundTwoPlayers = 0;
+		level.highRoundThreePlayers = 0;
+		level.highRoundFourPlayers = 0;
+		level.highRoundPlayersOne = "None";
+		level.highRoundPlayersTwo = "None";
+		level.highRoundPlayersThree = "None";
+		level.highRoundPlayersFour = "None";
+	}
+
+	for ( ;; )
+	{
+		level waittill ( "end_game" );
+		players = get_players();
+		numPlayers = players.size;
+		
+		
+		if ( numPlayers == 1 && level.round_number > level.highRoundOnePlayer )
+		{
+			updateHighRoundRecord(1, players);
+		}
+		else if ( numPlayers == 2 && level.round_number > level.highRoundTwoPlayers )
+		{
+			updateHighRoundRecord(2, players);
+		}
+		else if ( numPlayers == 3 && level.round_number > level.highRoundThreePlayers )
+		{
+			updateHighRoundRecord(3, players);
+		}
+		else if ( numPlayers == 4 && level.round_number > level.highRoundFourPlayers )
+		{
+			updateHighRoundRecord(4, players);
+		}
+	}
+}
+
+updateHighRoundRecord( numPlayers, players )
+{
+	level.highRoundPlayers = "";
+	for ( i = 0; i < players.size; i++ )
+	{
+		if( level.highRoundPlayers == "" )
+		{
+			level.highRoundPlayers = players[i].name;
+		}
+		else
+		{
+			level.highRoundPlayers = level.highRoundPlayers + "," + players[i].name;
+		}
+	}
+
+	foreach( player in level.players )
+	{
+		player tell( "New Record: ^1" + level.round_number );
+		player tell( "Set by: ^1" + level.highRoundPlayers );
+	}
+
+	
+	if( numPlayers == 1 )
+	{
+		level.highRoundOnePlayer = level.round_number;
+		level.highRoundPlayersOne = level.highRoundPlayers;
+	}
+	else if( numPlayers == 2 )
+	{
+		level.highRoundTwoPlayers = level.round_number;
+		level.highRoundPlayersTwo = level.highRoundPlayers;
+	}
+	else if( numPlayers == 3 )
+	{
+		level.highRoundThreePlayers = level.round_number;
+		level.highRoundPlayersThree = level.highRoundPlayers;
+	}
+	else if( numPlayers == 4 )
+	{
+		level.highRoundFourPlayers = level.round_number;
+		level.highRoundPlayersFour = level.highRoundPlayers;
+	}
+
+	
+	log_highround_record( level.highRoundOnePlayer + ";" + level.highRoundTwoPlayers + ";" + level.highRoundThreePlayers + ";" + level.highRoundFourPlayers + ";" + level.highRoundPlayersOne + ";" + level.highRoundPlayersTwo + ";" + level.highRoundPlayersThree + ";" + level.highRoundPlayersFour );
+}
+
+log_highround_record( newRecord )
+{
+	gamemode = gamemodeName( getDvar( "ui_gametype" ) );
+	map = mapName( level.script );
+	if( level.script == "zm_transit" && getDvar( "ui_gametype" ) == "zsurvival" )
+		map = startLocationName( getDvar( "ui_zm_mapstartlocation" ) );
+	level.basepath = getDvar("fs_homepath") + "/";
+	path = level.basepath + "/logs/" + map + gamemode + "HighRound.txt";
+	file = fopen( path, "w" );
+	fwrite( file, newRecord );
+	fclose( file );
+}
+
+startLocationName( location )
+{
+	if( location == "cornfield" )
+		return "Cornfield";
+	else if( location == "diner" )
+		return "Diner";
+	else if( location == "farm" )
+		return "Farm";
+	else if( location == "power" )
+		return "Power";
+	else if( location == "town" )
+		return "Town";
+	else if( location == "transit" )
+		return "BusDepot";
+	else if( location == "tunnel" )
+		return "Tunnel";
+}
+
+mapName( map )
+{
+	if( map == "zm_buried" )
+		return "Buried";
+	else if( map == "zm_highrise" )
+		return "DieRise";
+	else if( map == "zm_prison" )
+		return "Motd";
+	else if( map == "zm_nuked" )
+		return "Nuketown";
+	else if( map == "zm_tomb" )
+		return "Origins";
+	else if( map == "zm_transit" )
+		return "Tranzit";
+	return "NA";
+}
+
+gamemodeName( gamemode )
+{
+	if( gamemode == "zstandard" )
+		return "Standard";
+	else if( gamemode == "zclassic" )
+		return "Classic";
+	else if( gamemode == "zsurvival" )
+		return "Survival";
+	else if( gamemode == "zgrief" )
+		return "Grief";
+	else if( gamemode == "zcleansed" )
+		return "Turned";
+	return "NA";
+}
+
+high_round_info_giver()
+{
+	highroundinfo = 1;
+	roundmultiplier = 5;
+	level endon( "end_game" );
+	while( 1 )
+	{	
+		level waittill( "start_of_round" );
+		if( level.round_number == ( highroundinfo * roundmultiplier ))
+		{
+			highroundinfo++;
+			foreach( player in level.players )
+			{
+				player tell( "High Round Record for 1 player: ^1" + level.highRoundOnePlayer );
+				player tell( "Set by: ^1" + level.highRoundPlayersOne );
+				player tell( "High Round Record for 2 players: ^1" + level.highRoundTwoPlayers );
+				player tell( "Set by: ^1" + level.highRoundPlayersTwo );
+				player tell( "High Round Record for 3 players: ^1" + level.highRoundThreePlayers );
+				player tell( "Set by: ^1" + level.highRoundPlayersThree );
+				player tell( "High Round Record for 4 players: ^1" + level.highRoundFourPlayers );
+				player tell( "Set by: ^1" + level.highRoundPlayersFour );
+			}
+		}
+	}
+}
+
+high_round_info()
+{
+	wait 6;
+	self tell( "High Round Record for 1 player: ^1" + level.highRoundOnePlayer );
+	self tell( "Set by: ^1" + level.highRoundPlayersOne );
+	self tell( "High Round Record for 2 players: ^1" + level.highRoundTwoPlayers );
+	self tell( "Set by: ^1" + level.highRoundPlayersTwo );
+	self tell( "High Round Record for 3 players: ^1" + level.highRoundThreePlayers );
+	self tell( "Set by: ^1" + level.highRoundPlayersThree );
+	self tell( "High Round Record for 4 players: ^1" + level.highRoundFourPlayers );
+	self tell( "Set by: ^1" + level.highRoundPlayersFour );
+}
