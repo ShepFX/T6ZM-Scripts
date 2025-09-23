@@ -2,4 +2,4 @@ Script for stopping players joining a zombies lobby after round 20
 
 * Added unlock feature!
 
-Big thanks to NotHGM, Resxt and Ayymoss <33
+Big thanks to [HGM](https://github.com/NotHGM), [Resxt](https://github.com/Resxt) and [Amos](https://github.com/Ayymoss) <33
