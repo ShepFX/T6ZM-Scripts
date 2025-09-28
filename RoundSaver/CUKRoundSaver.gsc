@@ -35,13 +35,13 @@ high_round_tracker()
 	if( level.script == "zm_transit" && getDvar( "ui_gametype" ) == "zsurvival" )
 		map = startLocationName( getDvar( "ui_zm_mapstartlocation" ) );
 	
-	
+	//file handling//
 	level.basepath = getDvar("fs_homepath") + "/";
 	path = level.basepath + "/logs/" + map + gamemode + "HighRound.txt";
 	file = fopen(path, "r");
 	text = fread(file);
 	fclose(file);
-	
+	//end file handling//
 
 	highroundinfo = strToK( text, ";" );
 	if ( highroundinfo.size >= 8 )
@@ -57,7 +57,6 @@ high_round_tracker()
 	}
 	else
 	{
-		
 		level.highRoundOnePlayer = 0;
 		level.highRoundTwoPlayers = 0;
 		level.highRoundThreePlayers = 0;
@@ -74,23 +73,14 @@ high_round_tracker()
 		players = get_players();
 		numPlayers = players.size;
 		
-		
 		if ( numPlayers == 1 && level.round_number > level.highRoundOnePlayer )
-		{
 			updateHighRoundRecord(1, players);
-		}
 		else if ( numPlayers == 2 && level.round_number > level.highRoundTwoPlayers )
-		{
 			updateHighRoundRecord(2, players);
-		}
 		else if ( numPlayers == 3 && level.round_number > level.highRoundThreePlayers )
-		{
 			updateHighRoundRecord(3, players);
-		}
 		else if ( numPlayers == 4 && level.round_number > level.highRoundFourPlayers )
-		{
 			updateHighRoundRecord(4, players);
-		}
 	}
 }
 
@@ -100,22 +90,11 @@ updateHighRoundRecord( numPlayers, players )
 	for ( i = 0; i < players.size; i++ )
 	{
 		if( level.highRoundPlayers == "" )
-		{
 			level.highRoundPlayers = players[i].name;
-		}
 		else
-		{
-			level.highRoundPlayers = level.highRoundPlayers + "," + players[i].name;
-		}
+			level.highRoundPlayers = level.highRoundPlayers + ", " + players[i].name;
 	}
 
-	foreach( player in level.players )
-	{
-		player tell( "New Record: ^1" + level.round_number );
-		player tell( "Set by: ^1" + level.highRoundPlayers );
-	}
-
-	
 	if( numPlayers == 1 )
 	{
 		level.highRoundOnePlayer = level.round_number;
@@ -137,8 +116,32 @@ updateHighRoundRecord( numPlayers, players )
 		level.highRoundPlayersFour = level.highRoundPlayers;
 	}
 
-	
-	log_highround_record( level.highRoundOnePlayer + ";" + level.highRoundTwoPlayers + ";" + level.highRoundThreePlayers + ";" + level.highRoundFourPlayers + ";" + level.highRoundPlayersOne + ";" + level.highRoundPlayersTwo + ";" + level.highRoundPlayersThree + ";" + level.highRoundPlayersFour );
+	// Announce new record on left side, staggered
+	foreach( player in level.players )
+	{
+		player tell( "^1NEW RECORD!" );
+		wait 2;
+
+		if( numPlayers == 1 )
+			player tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + level.highRoundPlayersOne + ")" );
+		else if( numPlayers == 2 ) 
+			player tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + level.highRoundPlayersTwo + ")" );
+		else if( numPlayers == 3 ) 
+			player tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + level.highRoundPlayersThree + ")" );
+		else if( numPlayers == 4 ) 
+			player tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + level.highRoundPlayersFour + ")" );
+	}
+
+	log_highround_record( 
+		level.highRoundOnePlayer + ";" + 
+		level.highRoundTwoPlayers + ";" + 
+		level.highRoundThreePlayers + ";" + 
+		level.highRoundFourPlayers + ";" + 
+		level.highRoundPlayersOne + ";" + 
+		level.highRoundPlayersTwo + ";" + 
+		level.highRoundPlayersThree + ";" + 
+		level.highRoundPlayersFour 
+	);
 }
 
 log_highround_record( newRecord )
@@ -209,36 +212,46 @@ high_round_info_giver()
 	highroundinfo = 1;
 	roundmultiplier = 5;
 	level endon( "end_game" );
+
 	while( 1 )
 	{	
 		level waittill( "start_of_round" );
+
 		if( level.round_number == ( highroundinfo * roundmultiplier ))
 		{
 			highroundinfo++;
-			foreach( player in level.players )
+			players = get_players();
+			numPlayers = players.size;
+
+			foreach( player in players )
 			{
-				player tell( "High Round Record for 1 player: ^1" + level.highRoundOnePlayer );
-				player tell( "Set by: ^1" + level.highRoundPlayersOne );
-				player tell( "High Round Record for 2 players: ^1" + level.highRoundTwoPlayers );
-				player tell( "Set by: ^1" + level.highRoundPlayersTwo );
-				player tell( "High Round Record for 3 players: ^1" + level.highRoundThreePlayers );
-				player tell( "Set by: ^1" + level.highRoundPlayersThree );
-				player tell( "High Round Record for 4 players: ^1" + level.highRoundFourPlayers );
-				player tell( "Set by: ^1" + level.highRoundPlayersFour );
+				player tell( "^7Current High Round Record:" );
+				wait 2;
+
+				if( numPlayers == 1 )
+					player tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + level.highRoundPlayersOne + ")" );
+				else if( numPlayers == 2 )
+					player tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + level.highRoundPlayersTwo + ")" );
+				else if( numPlayers == 3 )
+					player tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + level.highRoundPlayersThree + ")" );
+				else if( numPlayers == 4 )
+					player tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + level.highRoundPlayersFour + ")" );
 			}
 		}
 	}
 }
 
+
 high_round_info()
 {
 	wait 6;
-	self tell( "High Round Record for 1 player: ^1" + level.highRoundOnePlayer );
-	self tell( "Set by: ^1" + level.highRoundPlayersOne );
-	self tell( "High Round Record for 2 players: ^1" + level.highRoundTwoPlayers );
-	self tell( "Set by: ^1" + level.highRoundPlayersTwo );
-	self tell( "High Round Record for 3 players: ^1" + level.highRoundThreePlayers );
-	self tell( "Set by: ^1" + level.highRoundPlayersThree );
-	self tell( "High Round Record for 4 players: ^1" + level.highRoundFourPlayers );
-	self tell( "Set by: ^1" + level.highRoundPlayersFour );
+	self tell( "^7High Round Records:" );
+	wait 2;
+	self tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + level.highRoundPlayersOne + ")" );
+	wait 2;
+	self tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + level.highRoundPlayersTwo + ")" );
+	wait 2;
+	self tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + level.highRoundPlayersThree + ")" );
+	wait 2;
+	self tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + level.highRoundPlayersFour + ")" );
 }
