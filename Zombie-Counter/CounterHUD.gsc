@@ -272,11 +272,13 @@ _zc_set_visible( show, t )
         self.zc_sep  fadeovertime( t ); self.zc_sep.alpha  = 0.40;
         self.zc_hdr  fadeovertime( t ); self.zc_hdr.alpha  = 1.0;
         self.zc_zrow fadeovertime( t ); self.zc_zrow.alpha = 1.0;
+        self.zc_zval fadeovertime( t ); self.zc_zval.alpha = 1.0;
         self.zc_srow fadeovertime( t ); self.zc_srow.alpha = 1.0;
+        self.zc_sval fadeovertime( t ); self.zc_sval.alpha = 1.0;
         if ( isdefined( self.zc_dog_vis ) && self.zc_dog_vis )
         {
-            self.zc_drow fadeovertime( t );
-            self.zc_drow.alpha = 1.0;
+            self.zc_drow fadeovertime( t ); self.zc_drow.alpha = 1.0;
+            self.zc_dval fadeovertime( t ); self.zc_dval.alpha = 1.0;
         }
         // Force a full redraw on the next update tick
         self.zc_prev_zleft   = -1;
@@ -291,8 +293,11 @@ _zc_set_visible( show, t )
         self.zc_sep  fadeovertime( t ); self.zc_sep.alpha  = 0;
         self.zc_hdr  fadeovertime( t ); self.zc_hdr.alpha  = 0;
         self.zc_zrow fadeovertime( t ); self.zc_zrow.alpha = 0;
+        self.zc_zval fadeovertime( t ); self.zc_zval.alpha = 0;
         self.zc_drow fadeovertime( t ); self.zc_drow.alpha = 0;
+        self.zc_dval fadeovertime( t ); self.zc_dval.alpha = 0;
         self.zc_srow fadeovertime( t ); self.zc_srow.alpha = 0;
+        self.zc_sval fadeovertime( t ); self.zc_sval.alpha = 0;
     }
 }
 
@@ -384,21 +389,39 @@ _zc_build_hud()
     player.zc_hdr settext( "ENEMY TRACKER" );
     player.zc_hdr.fontscale = 1.0;
 
-    player.zc_zrow = _zc_hud( player, px + 5, py + 17, 1.0, 0.58, 0.58, 0.63, 7 );
+    // Static labels — settext() called once, no repeated configstring allocation.
+    // Numeric values use setvalue() which renders integers natively (no configstrings).
+    player.zc_zrow = _zc_hud( player, px + 5,  py + 17, 1.0, 0.58, 0.58, 0.63, 7 );
     player.zc_zrow.font = "small";
-    player.zc_zrow settext( "ZOMBIES 0" );
+    player.zc_zrow settext( "ZOMBIES" );
     player.zc_zrow.fontscale = 1.0;
 
-    player.zc_drow = _zc_hud( player, px + 5, py + 29, 1.0, 1.00, 0.78, 0.12, 7 );
+    player.zc_zval = _zc_hud( player, px + 50, py + 17, 1.0, 0.58, 0.58, 0.63, 7 );
+    player.zc_zval.font = "small";
+    player.zc_zval setvalue( 0 );
+    player.zc_zval.fontscale = 1.0;
+
+    player.zc_drow = _zc_hud( player, px + 5,  py + 29, 1.0, 1.00, 0.78, 0.12, 7 );
     player.zc_drow.font = "small";
-    player.zc_drow settext( "DOGS 0" );
+    player.zc_drow settext( "DOGS" );
     player.zc_drow.fontscale = 1.0;
     player.zc_drow.alpha = 0.0;
 
-    player.zc_srow = _zc_hud( player, px + 5, py + 29, 1.0, 0.50, 0.88, 0.50, 7 );
+    player.zc_dval = _zc_hud( player, px + 50, py + 29, 1.0, 1.00, 0.78, 0.12, 7 );
+    player.zc_dval.font = "small";
+    player.zc_dval setvalue( 0 );
+    player.zc_dval.fontscale = 1.0;
+    player.zc_dval.alpha = 0.0;
+
+    player.zc_srow = _zc_hud( player, px + 5,  py + 29, 1.0, 0.50, 0.88, 0.50, 7 );
     player.zc_srow.font = "small";
-    player.zc_srow settext( "SPAWNED 0" );
+    player.zc_srow settext( "SPAWNED" );
     player.zc_srow.fontscale = 1.0;
+
+    player.zc_sval = _zc_hud( player, px + 50, py + 29, 1.0, 0.50, 0.88, 0.50, 7 );
+    player.zc_sval.font = "small";
+    player.zc_sval setvalue( 0 );
+    player.zc_sval.fontscale = 1.0;
 
     player.zc_dog_vis = 0;
 
@@ -464,13 +487,18 @@ _zc_build_hud()
         if ( total_z != player.zc_prev_zleft )
         {
             player.zc_prev_zleft = total_z;
-            player.zc_zrow settext( "ZOMBIES " + total_z );
-            player.zc_zrow.fontscale = 1.0;
+            player.zc_zval setvalue( total_z );
             if ( total_z <= 5 )
+            {
                 player.zc_zrow.color = ( 1.0, 0.25, 0.05 );
+                player.zc_zval.color = ( 1.0, 0.25, 0.05 );
+            }
             else
+            {
                 player.zc_zrow.color = ( 0.58, 0.58, 0.63 );
-            player.zc_zrow thread _zc_pulse( player );
+                player.zc_zval.color = ( 0.58, 0.58, 0.63 );
+            }
+            player.zc_zval thread _zc_pulse( player );
         }
 
         // Dog row fade
@@ -486,15 +514,19 @@ _zc_build_hud()
             player.zc_prev_dog_vis = dog_vis;
             player.zc_drow fadeovertime( 0.25 );
             player.zc_drow.alpha = dog_vis;
+            player.zc_dval fadeovertime( 0.25 );
+            player.zc_dval.alpha = dog_vis;
             if ( dog_vis )
             {
                 player.zc_srow.y = py + 41;
+                player.zc_sval.y = py + 41;
                 player.zc_bg setshader( "white", 80, 55 );
                 player.zc_ac setshader( "white",  4, 55 );
             }
             else
             {
                 player.zc_srow.y = py + 29;
+                player.zc_sval.y = py + 29;
                 player.zc_bg setshader( "white", 80, 42 );
                 player.zc_ac setshader( "white",  4, 42 );
             }
@@ -504,18 +536,16 @@ _zc_build_hud()
         if ( total_d != player.zc_prev_dleft )
         {
             player.zc_prev_dleft = total_d;
-            player.zc_drow settext( "DOGS " + total_d );
-            player.zc_drow.fontscale = 1.0;
-            player.zc_drow thread _zc_pulse( player );
+            player.zc_dval setvalue( total_d );
+            player.zc_dval thread _zc_pulse( player );
         }
 
         // SPAWNED
         if ( spawned != player.zc_prev_spawned )
         {
             player.zc_prev_spawned = spawned;
-            player.zc_srow settext( "SPAWNED " + spawned );
-            player.zc_srow.fontscale = 1.0;
-            player.zc_srow thread _zc_pulse( player );
+            player.zc_sval setvalue( spawned );
+            player.zc_sval thread _zc_pulse( player );
         }
     }
 }
