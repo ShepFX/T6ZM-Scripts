@@ -1,47 +1,51 @@
-# Enemy Counter HUD for T6 Zombies
+# Enemy Counter + Round Timer HUD for T6 Zombies
 
-This GSC script adds a persistent, per-player **Enemy Counter HUD** to Black Ops 2 (T6) Zombies. It provides real-time tracking of remaining zombies, active dogs, and currently spawned enemies on the map.
+This GSC script adds a clean, stacked HUD to Black Ops 2 (T6) Zombies. It combines the enemy counter with a lightweight round timer and split display.
 
----
+## Features
 
-## Key Features
-
-* **Real-Time Tracking:** Displays the total number of zombies left in the round, active Hellhounds, and how many enemies are currently spawned on the map.
-* **Dynamic HUD:** The interface automatically expands to show a "DOGS" row during dog rounds or when Hellhounds are present, and shrinks when they are gone.
-* **Visual Alerts:** The zombie counter changes color to a bright orange/red when 5 or fewer enemies remain to alert players to the end of the round.
-* **Persistent Preferences:** User settings (ON/OFF) are saved to a text file (`scriptdata/zc_prefs.txt`) and persist across different matches and server restarts.
-* **Clean Aesthetics:** Includes pulse animations whenever counts change and a sleek, semi-transparent background.
-
----
+- Real-time enemy counter for zombies, Hellhounds, and currently spawned enemies.
+- Dynamic dog row that appears only during dog rounds or active Hellhound spawns.
+- End-of-round warning color when 5 or fewer zombies remain.
+- Round timer panel styled to match the enemy counter.
+- Current round timer plus the previous two completed round splits.
+- Per-player counter preference saved to `scriptdata/zc_prefs.txt`.
+- Separate chat toggles for the counter, timer, or both panels.
 
 ## Commands
 
-Players can toggle the HUD individually using the following chat command:
-
-* `.counter` — Toggles the Enemy Tracker HUD on or off.
-
----
+```text
+.counter  Toggle only the enemy counter
+.timer    Toggle only the round timer/splits panel
+.hud      Toggle both panels together
+```
 
 ## Installation
 
-1.  Navigate to your T6 Zombies scripts directory (typically `maps/mp/zombies/`).
-2.  Place the `CounterHUD_t6.gsc` file into this folder.
-3.  Ensure the script is loaded by your GSC injector or server configuration.
-4.  **Note:** The script automatically creates and manages a `scriptdata/` folder for saving player preferences.
+1. Place `CounterHUD.gsc` with your other custom T6 Zombies scripts.
+2. Load the script through your GSC injector or server script configuration.
+3. Call the script init from your loaded script path, adjusted to wherever you place it:
 
----
+```gsc
+maps\mp\CounterHUD::init();
+```
 
-## Technical Details
+If you rename the file or place it in a different script folder, update the call path to match.
 
-### HUD Elements
-| Element | Description |
+## HUD Layout
+
+| Panel | Rows |
 | :--- | :--- |
-| **ZOMBIES** | Total enemies remaining in the current round. |
-| **DOGS** | Total Hellhounds remaining (only visible during dog rounds or active spawns). |
-| **SPAWNED** | The number of enemies currently physically present on the map. |
+| Enemy counter | `ZOMBIES`, optional `DOGS`, `SPAWNED` |
+| Splits | current round, last round split, previous split |
 
-### Configuration
-The script uses an orange accent theme by default:
-* **Accent Color:** `(1.00, 0.55, 0.05)`.
-* **Background Alpha:** `0.72`.
-* **Update Rate:** The HUD refreshes every **0.1 seconds**.
+The timer panel is the same width and style as the counter panel, and it automatically moves down when the dog row expands the counter.
+
+## Configuration
+
+The default visual style uses:
+
+- Accent color: `(1.00, 0.55, 0.05)`
+- Background alpha: `0.72`
+- Counter refresh rate: `0.1` seconds
+- Timer source: T6 `start_of_round` / `end_of_round` notifications

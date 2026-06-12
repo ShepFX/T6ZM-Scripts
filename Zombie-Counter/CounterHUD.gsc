@@ -1,6 +1,6 @@
-// T6 ZM - Enemy Counter HUD
+// T6 ZM - Enemy Counter + Round Timer HUD
 // Drop into maps/mp/zombies/ alongside other _zm_* scripts.
-// Type .counter in chat to toggle the HUD on/off (preference saved to scriptdata/).
+// Commands: .counter toggles enemy counter, .timer toggles round timer, .hud toggles both.
 
 #include common_scripts\utility;
 #include maps\mp\_utility;
@@ -13,6 +13,13 @@
 
 init()
 {
+    if ( isdefined( level.zc_hud_initialized ) && level.zc_hud_initialized )
+        return;
+
+    level.zc_hud_initialized = true;
+
+    t6rt_init_state();
+    level thread t6rt_round_monitor();
     level thread _zc_connect_monitor();
     level thread _zc_chat_monitor();
 }
@@ -27,12 +34,16 @@ _zc_connect_monitor()
     level endon( "end_game" );
     players = get_players();
     for ( i = 0; i < players.size; i++ )
+    {
         players[i] thread _zc_build_hud();
+        players[i] thread t6rt_build_hud();
+    }
     for ( ;; )
     {
         // T6 ZM uses "connected" for player join events
         level waittill( "connected", player );
         player thread _zc_build_hud();
+        player thread t6rt_build_hud();
     }
 }
 
@@ -207,7 +218,7 @@ _zc_trim_cr( s )
 
 
 // ════════════════════════════════════════════════════════════════════════════
-//  CHAT COMMAND  —  .counter  toggles the HUD
+//  CHAT COMMANDS
 // ════════════════════════════════════════════════════════════════════════════
 
 _zc_chat_monitor()
@@ -220,18 +231,45 @@ _zc_chat_monitor()
 
         if ( !isdefined( text ) || !isdefined( player ) )
             continue;
-        if ( !isdefined( player.zc_bg ) )
-            continue; // HUD not built yet
-        if ( _zc_sanitize( text ) != ".counter" )
-            continue;
 
-        player.zc_enabled = !player.zc_enabled;
-        _zc_save_pref( player, player.zc_enabled );
+        command = _zc_sanitize( text );
 
-        if ( player.zc_enabled )
-            player _zc_set_visible( 1, 0.20 );
-        else
-            player _zc_set_visible( 0, 0.20 );
+        if ( command == ".counter" )
+        {
+            if ( !isdefined( player.zc_bg ) )
+                continue; // Counter HUD not built yet
+
+            player.zc_enabled = !player.zc_enabled;
+            _zc_save_pref( player, player.zc_enabled );
+            player _zc_set_visible( player.zc_enabled, 0.20 );
+        }
+        else if ( command == ".timer" )
+        {
+            if ( !isdefined( player.t6rt_ready ) || !player.t6rt_ready )
+                continue; // Timer HUD not built yet
+
+            player.t6rt_enabled = !player.t6rt_enabled;
+            player t6rt_set_visible( player.t6rt_enabled, 0.20 );
+        }
+        else if ( command == ".hud" )
+        {
+            hud_enabled = 1;
+            if ( ( isdefined( player.zc_enabled ) && player.zc_enabled ) || ( isdefined( player.t6rt_enabled ) && player.t6rt_enabled ) )
+                hud_enabled = 0;
+
+            if ( isdefined( player.zc_bg ) )
+            {
+                player.zc_enabled = hud_enabled;
+                _zc_save_pref( player, player.zc_enabled );
+                player _zc_set_visible( player.zc_enabled, 0.20 );
+            }
+
+            if ( isdefined( player.t6rt_ready ) && player.t6rt_ready )
+            {
+                player.t6rt_enabled = hud_enabled;
+                player t6rt_set_visible( player.t6rt_enabled, 0.20 );
+            }
+        }
     }
 }
 
@@ -522,6 +560,8 @@ _zc_build_hud()
                 player.zc_sval.y = py + 41;
                 player.zc_bg setshader( "white", 80, 55 );
                 player.zc_ac setshader( "white",  4, 55 );
+                if ( isdefined( player.t6rt_ready ) && player.t6rt_ready )
+                    player t6rt_move( 83 );
             }
             else
             {
@@ -529,6 +569,8 @@ _zc_build_hud()
                 player.zc_sval.y = py + 29;
                 player.zc_bg setshader( "white", 80, 42 );
                 player.zc_ac setshader( "white",  4, 42 );
+                if ( isdefined( player.t6rt_ready ) && player.t6rt_ready )
+                    player t6rt_move( 69 );
             }
         }
 
@@ -571,4 +613,364 @@ _zc_pulse( player )
 
     self changefontscaleovertime( 0.14 );
     self.fontscale = base;
+}
+
+
+// ============================================================================
+//  ROUND TIMER / SPLITTER
+// ============================================================================
+
+t6rt_init_state()
+{
+    level.t6rt_enabled_default = true;
+    level.t6rt_current_round = 0;
+    level.t6rt_current_time = "";
+    level.t6rt_round_active = false;
+    level.t6rt_round_start_ms = 0;
+    level.t6rt_prev_round_1 = 0;
+    level.t6rt_prev_round_2 = 0;
+    level.t6rt_prev_time_1 = "";
+    level.t6rt_prev_time_2 = "";
+    level.t6rt_generation = 0;
+    level.t6rt_timer_generation = 0;
+}
+
+t6rt_round_monitor()
+{
+    level endon( "end_game" );
+    level endon( "game_ended" );
+
+    wait 1;
+
+    if ( isdefined( level.round_number ) )
+        t6rt_start_round( level.round_number );
+
+    for ( ;; )
+    {
+        level waittill( "end_of_round" );
+
+        if ( level.t6rt_round_start_ms > 0 )
+            t6rt_store_split( gettime() - level.t6rt_round_start_ms );
+
+        level waittill( "start_of_round" );
+        t6rt_start_round( level.round_number );
+    }
+}
+
+t6rt_start_round( round )
+{
+    if ( !isdefined( round ) )
+        round = 0;
+
+    level.t6rt_current_round = round;
+    level.t6rt_current_time = "";
+    level.t6rt_round_active = true;
+    level.t6rt_round_start_ms = gettime();
+
+    if ( isdefined( level.round_start_time ) && level.round_start_time > 0 )
+        level.t6rt_round_start_ms = level.round_start_time;
+
+    level.t6rt_generation++;
+    level.t6rt_timer_generation++;
+    level notify( "t6rt_refresh" );
+}
+
+t6rt_store_split( elapsed_ms )
+{
+    level.t6rt_current_time = t6rt_format_time( elapsed_ms );
+    level.t6rt_round_active = false;
+    level.t6rt_generation++;
+    level.t6rt_timer_generation++;
+
+    level.t6rt_prev_round_2 = level.t6rt_prev_round_1;
+    level.t6rt_prev_time_2 = level.t6rt_prev_time_1;
+
+    level.t6rt_prev_round_1 = level.t6rt_current_round;
+    level.t6rt_prev_time_1 = t6rt_format_time( elapsed_ms );
+
+    level notify( "t6rt_refresh" );
+}
+
+t6rt_build_hud()
+{
+    self endon( "disconnect" );
+    level endon( "end_game" );
+    level endon( "game_ended" );
+
+    player = self;
+    player waittill( "spawned_player" );
+
+    if ( isdefined( player.t6rt_ready ) && player.t6rt_ready )
+        return;
+
+    player.t6rt_ready = true;
+    player.t6rt_enabled = level.t6rt_enabled_default;
+    player.t6rt_seen_generation = -1;
+    player.t6rt_seen_timer_generation = -1;
+
+    // Same visual language and width as the counter, stacked below it.
+    px = 20;
+    py = 69;
+    if ( level flag_exists( "dog_round" ) && flag( "dog_round" ) )
+        py = 83;
+    w = 80;
+    h = 54;
+
+    ar = 1.00;
+    ag = 0.55;
+    ab = 0.05;
+
+    player.t6rt_time_x = px + 75;
+    player.t6rt_time_y = py + 17;
+
+    player.t6rt_bg = t6rt_bar( player, px + 0, py + 0, w, h, 0.04, 0.04, 0.07, 0.72, 5 );
+    player.t6rt_accent = t6rt_bar( player, px + w, py + 0, 4, h, ar, ag, ab, 0.90, 6 );
+    player.t6rt_sep = t6rt_bar( player, px + 4, py + 13, w - 8, 1, ar, ag, ab, 0.40, 6 );
+
+    player.t6rt_title = t6rt_text_left( player, px + 5, py + 2, "default", 1.0, ar, ag, ab, 7 );
+    player.t6rt_title settext( "SPLITS" );
+
+    player.t6rt_cur_label = t6rt_text_left( player, px + 5, py + 17, "small", 1.0, 0.58, 0.58, 0.63, 7 );
+    player.t6rt_cur_label settext( "R0" );
+
+    player.t6rt_cur_time = t6rt_text_right( player, player.t6rt_time_x, player.t6rt_time_y, "small", 1.0, 1.00, 1.00, 1.00, 7 );
+    player.t6rt_cur_time settext( "--:--" );
+
+    player.t6rt_prev1_label = t6rt_text_left( player, px + 5, py + 30, "small", 1.0, 0.58, 0.58, 0.63, 7 );
+    player.t6rt_prev1_label settext( "LAST" );
+
+    player.t6rt_prev1_time = t6rt_text_right( player, player.t6rt_time_x, py + 30, "small", 1.0, 0.72, 0.78, 0.86, 7 );
+    player.t6rt_prev1_time settext( "--:--" );
+
+    player.t6rt_prev2_label = t6rt_text_left( player, px + 5, py + 42, "small", 1.0, 0.45, 0.48, 0.55, 7 );
+    player.t6rt_prev2_label settext( "PREV" );
+
+    player.t6rt_prev2_time = t6rt_text_right( player, player.t6rt_time_x, py + 42, "small", 1.0, 0.55, 0.60, 0.68, 7 );
+    player.t6rt_prev2_time settext( "--:--" );
+
+    if ( !player.t6rt_enabled )
+        player t6rt_set_visible( 0, 0 );
+
+    player thread t6rt_refresh_loop();
+}
+
+t6rt_refresh_loop()
+{
+    self endon( "disconnect" );
+    level endon( "end_game" );
+    level endon( "game_ended" );
+
+    for ( ;; )
+    {
+        if ( self.t6rt_seen_generation != level.t6rt_generation )
+            self t6rt_redraw();
+
+        level waittill( "t6rt_refresh" );
+    }
+}
+
+t6rt_redraw()
+{
+    self.t6rt_seen_generation = level.t6rt_generation;
+
+    if ( isdefined( self.t6rt_cur_label ) )
+        self.t6rt_cur_label settext( "R" + level.t6rt_current_round );
+
+    if ( isdefined( self.t6rt_cur_time ) && self.t6rt_seen_timer_generation != level.t6rt_timer_generation )
+    {
+        self.t6rt_seen_timer_generation = level.t6rt_timer_generation;
+        self.t6rt_cur_time destroy();
+        self.t6rt_cur_time = t6rt_text_right( self, self.t6rt_time_x, self.t6rt_time_y, "small", 1.0, 1.00, 1.00, 1.00, 7 );
+
+        if ( isdefined( level.t6rt_round_active ) && level.t6rt_round_active )
+            self.t6rt_cur_time settenthstimerup( t6rt_elapsed_seconds() + 0.1 );
+        else if ( isdefined( level.t6rt_current_time ) && level.t6rt_current_time != "" )
+            self.t6rt_cur_time settext( level.t6rt_current_time );
+        else
+            self.t6rt_cur_time settext( "--:--" );
+
+        if ( isdefined( self.t6rt_enabled ) && !self.t6rt_enabled )
+            self.t6rt_cur_time.alpha = 0;
+    }
+
+    if ( isdefined( self.t6rt_prev1_label ) )
+    {
+        if ( level.t6rt_prev_round_1 > 0 )
+            self.t6rt_prev1_label settext( "R" + level.t6rt_prev_round_1 );
+        else
+            self.t6rt_prev1_label settext( "LAST" );
+    }
+
+    if ( isdefined( self.t6rt_prev1_time ) )
+    {
+        if ( level.t6rt_prev_time_1 != "" )
+            self.t6rt_prev1_time settext( level.t6rt_prev_time_1 );
+        else
+            self.t6rt_prev1_time settext( "--:--" );
+    }
+
+    if ( isdefined( self.t6rt_prev2_label ) )
+    {
+        if ( level.t6rt_prev_round_2 > 0 )
+            self.t6rt_prev2_label settext( "R" + level.t6rt_prev_round_2 );
+        else
+            self.t6rt_prev2_label settext( "PREV" );
+    }
+
+    if ( isdefined( self.t6rt_prev2_time ) )
+    {
+        if ( level.t6rt_prev_time_2 != "" )
+            self.t6rt_prev2_time settext( level.t6rt_prev_time_2 );
+        else
+            self.t6rt_prev2_time settext( "--:--" );
+    }
+}
+
+t6rt_set_visible( visible, fade_time )
+{
+    alpha = 0;
+    if ( visible )
+        alpha = 1;
+
+    bg_alpha = 0;
+    accent_alpha = 0;
+    sep_alpha = 0;
+
+    if ( visible )
+    {
+        bg_alpha = 0.72;
+        accent_alpha = 0.90;
+        sep_alpha = 0.40;
+    }
+
+    self.t6rt_bg fadeovertime( fade_time );
+    self.t6rt_bg.alpha = bg_alpha;
+    self.t6rt_accent fadeovertime( fade_time );
+    self.t6rt_accent.alpha = accent_alpha;
+    self.t6rt_sep fadeovertime( fade_time );
+    self.t6rt_sep.alpha = sep_alpha;
+
+    elems = [];
+    elems[0] = self.t6rt_title;
+    elems[1] = self.t6rt_cur_label;
+    elems[2] = self.t6rt_cur_time;
+    elems[3] = self.t6rt_prev1_label;
+    elems[4] = self.t6rt_prev1_time;
+    elems[5] = self.t6rt_prev2_label;
+    elems[6] = self.t6rt_prev2_time;
+
+    for ( i = 0; i < elems.size; i++ )
+    {
+        if ( !isdefined( elems[i] ) )
+            continue;
+
+        elems[i] fadeovertime( fade_time );
+        elems[i].alpha = alpha;
+    }
+}
+
+t6rt_move( py )
+{
+    if ( !isdefined( self.t6rt_bg ) )
+        return;
+
+    self.t6rt_bg.y = py;
+    self.t6rt_accent.y = py;
+    self.t6rt_sep.y = py + 13;
+    self.t6rt_title.y = py + 2;
+    self.t6rt_cur_label.y = py + 17;
+    self.t6rt_time_y = py + 17;
+    if ( isdefined( self.t6rt_cur_time ) )
+        self.t6rt_cur_time.y = self.t6rt_time_y;
+    self.t6rt_prev1_label.y = py + 30;
+    self.t6rt_prev1_time.y = py + 30;
+    self.t6rt_prev2_label.y = py + 42;
+    self.t6rt_prev2_time.y = py + 42;
+}
+
+t6rt_text_left( player, x, y, font, scale, r, g, b, sort )
+{
+    elem = newclienthudelem( player );
+    elem.foreground = 1;
+    elem.hidewhendead = 0;
+    elem.hidewheninmenu = 0;
+    elem.horzalign = "left";
+    elem.vertalign = "top";
+    elem.alignx = "left";
+    elem.aligny = "top";
+    elem.x = x;
+    elem.y = y;
+    elem.font = font;
+    elem.fontscale = scale;
+    elem.color = ( r, g, b );
+    elem.alpha = 1;
+    elem.sort = sort;
+    return elem;
+}
+
+t6rt_text_right( player, x, y, font, scale, r, g, b, sort )
+{
+    elem = newclienthudelem( player );
+    elem.foreground = 1;
+    elem.hidewhendead = 0;
+    elem.hidewheninmenu = 0;
+    elem.horzalign = "left";
+    elem.vertalign = "top";
+    elem.alignx = "right";
+    elem.aligny = "top";
+    elem.x = x;
+    elem.y = y;
+    elem.font = font;
+    elem.fontscale = scale;
+    elem.color = ( r, g, b );
+    elem.alpha = 1;
+    elem.sort = sort;
+    return elem;
+}
+
+t6rt_bar( player, x, y, w, h, r, g, b, a, sort )
+{
+    elem = newclienthudelem( player );
+    elem.foreground = 1;
+    elem.hidewhendead = 0;
+    elem.hidewheninmenu = 0;
+    elem.horzalign = "left";
+    elem.vertalign = "top";
+    elem.alignx = "left";
+    elem.aligny = "top";
+    elem.x = x;
+    elem.y = y;
+    elem.sort = sort;
+    elem setshader( "white", w, h );
+    elem.color = ( r, g, b );
+    elem.alpha = a;
+    return elem;
+}
+
+t6rt_format_time( elapsed_ms )
+{
+    if ( elapsed_ms < 0 )
+        elapsed_ms = 0;
+
+    total_seconds = int( elapsed_ms / 1000 );
+    minutes = int( total_seconds / 60 );
+    seconds = total_seconds - ( minutes * 60 );
+
+    second_text = "" + seconds;
+    if ( seconds < 10 )
+        second_text = "0" + seconds;
+
+    return minutes + ":" + second_text;
+}
+
+t6rt_elapsed_seconds()
+{
+    if ( !isdefined( level.t6rt_round_start_ms ) || level.t6rt_round_start_ms <= 0 )
+        return 0;
+
+    elapsed_ms = gettime() - level.t6rt_round_start_ms;
+    if ( elapsed_ms < 0 )
+        elapsed_ms = 0;
+
+    return elapsed_ms / 1000;
 }
