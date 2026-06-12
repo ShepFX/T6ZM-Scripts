@@ -627,6 +627,7 @@ t6rt_init_state()
     level.t6rt_current_time = "";
     level.t6rt_round_active = false;
     level.t6rt_round_start_ms = 0;
+    level.t6rt_last_completed_round = 0;
     level.t6rt_prev_round_1 = 0;
     level.t6rt_prev_round_2 = 0;
     level.t6rt_prev_time_1 = "";
@@ -639,6 +640,8 @@ t6rt_round_monitor()
 {
     level endon( "end_game" );
     level endon( "game_ended" );
+
+    level thread t6rt_round_poll_monitor();
 
     wait 1;
 
@@ -662,13 +665,17 @@ t6rt_start_round( round )
     if ( !isdefined( round ) )
         round = 0;
 
+    start_ms = gettime();
+    if ( isdefined( level.round_start_time ) && level.round_start_time > 0 )
+        start_ms = level.round_start_time;
+
+    if ( level.t6rt_round_active && level.t6rt_current_round == round && level.t6rt_round_start_ms == start_ms )
+        return;
+
     level.t6rt_current_round = round;
     level.t6rt_current_time = "";
     level.t6rt_round_active = true;
-    level.t6rt_round_start_ms = gettime();
-
-    if ( isdefined( level.round_start_time ) && level.round_start_time > 0 )
-        level.t6rt_round_start_ms = level.round_start_time;
+    level.t6rt_round_start_ms = start_ms;
 
     level.t6rt_generation++;
     level.t6rt_timer_generation++;
@@ -677,6 +684,10 @@ t6rt_start_round( round )
 
 t6rt_store_split( elapsed_ms )
 {
+    if ( level.t6rt_current_round <= 0 || level.t6rt_last_completed_round == level.t6rt_current_round )
+        return;
+
+    level.t6rt_last_completed_round = level.t6rt_current_round;
     level.t6rt_current_time = t6rt_format_time( elapsed_ms );
     level.t6rt_round_active = false;
     level.t6rt_generation++;
@@ -689,6 +700,51 @@ t6rt_store_split( elapsed_ms )
     level.t6rt_prev_time_1 = t6rt_format_time( elapsed_ms );
 
     level notify( "t6rt_refresh" );
+}
+
+t6rt_round_poll_monitor()
+{
+    level endon( "end_game" );
+    level endon( "game_ended" );
+
+    wait 2;
+
+    last_round = 0;
+    last_start_ms = 0;
+
+    if ( isdefined( level.round_number ) )
+        last_round = level.round_number;
+
+    if ( isdefined( level.round_start_time ) )
+        last_start_ms = level.round_start_time;
+
+    for ( ;; )
+    {
+        wait 0.25;
+
+        if ( !isdefined( level.round_number ) )
+            continue;
+
+        if ( level.t6rt_round_active && level.round_number != level.t6rt_current_round )
+        {
+            if ( level.t6rt_round_start_ms > 0 )
+                t6rt_store_split( gettime() - level.t6rt_round_start_ms );
+
+            last_round = level.round_number;
+        }
+
+        if ( isdefined( level.round_start_time ) && level.round_start_time > 0 && level.round_start_time != last_start_ms )
+        {
+            last_start_ms = level.round_start_time;
+            t6rt_start_round( level.round_number );
+            last_round = level.round_number;
+        }
+        else if ( last_round == 0 || level.round_number < last_round )
+        {
+            t6rt_start_round( level.round_number );
+            last_round = level.round_number;
+        }
+    }
 }
 
 t6rt_build_hud()
