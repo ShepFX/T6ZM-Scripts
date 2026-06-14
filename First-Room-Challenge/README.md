@@ -11,16 +11,7 @@ Players can still buy wall weapons, but doors and room-opening blockers cannot b
 - Blocks `zombie_airlock_buy` style room blockers.
 - Leaves wall weapon buy triggers untouched.
 - Shows players a short first-room challenge message when they spawn.
-- Provides a status command for players.
-
-## Commands
-
-```text
-.firstroom
-.frc
-```
-
-Both commands show whether the challenge is active. The challenge is enabled automatically once the script is loaded.
+- Enables automatically once the script is loaded.
 
 ## Installation
 

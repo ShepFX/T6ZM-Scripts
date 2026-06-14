@@ -23,7 +23,6 @@ init()
     level.custom_door_buy_check = ::frc_door_buy_check;
 
     level thread frc_disable_blocker_loop();
-    level thread frc_chat_listener();
     level thread frc_player_connect();
 
     println( "[FIRST ROOM] challenge initialized" );
@@ -49,30 +48,6 @@ frc_intro_message()
 
     if ( isdefined( level.frc_enabled ) && level.frc_enabled )
         self iprintlnbold( "^3First Room Challenge^7: doors are locked, wall weapons allowed." );
-}
-
-frc_chat_listener()
-{
-    level endon( "end_game" );
-    level endon( "game_ended" );
-
-    for ( ;; )
-    {
-        level waittill( "say", text, player );
-
-        if ( !isdefined( text ) || !isdefined( player ) )
-            continue;
-
-        command = frc_sanitize( text );
-
-        if ( command == ".firstroom" || command == ".frc" )
-        {
-            if ( level.frc_enabled )
-                player iprintlnbold( "^3First Room Challenge^7 is ON: no doors/debris, wall weapons allowed." );
-            else
-                player iprintlnbold( "^3First Room Challenge^7 is OFF." );
-        }
-    }
 }
 
 frc_door_buy_check( door )
@@ -136,27 +111,4 @@ frc_deny_feedback()
 
     self iprintln( "^1Doors are disabled for First Room Challenge." );
     self playsound( "no_purchase" );
-}
-
-frc_sanitize( text )
-{
-    if ( !isdefined( text ) )
-        return "";
-
-    for ( i = 0; i < 64; i++ )
-    {
-        if ( text == "" )
-            return "";
-
-        first = getSubStr( text, 0, 1 );
-        if ( first == " " || first == "\t" )
-        {
-            text = getSubStr( text, 1, 1024 );
-            continue;
-        }
-
-        break;
-    }
-
-    return text;
 }
