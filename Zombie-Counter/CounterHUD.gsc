@@ -381,7 +381,7 @@ _zc_hud( player, x, y, scale, r, g, b, srt )
     e = newclienthudelem( player );
     e.foreground     = 1;
     e.hidewhendead   = 0;
-    e.hidewheninmenu = 0;
+    e.hidewheninmenu = 1;
     e.horzalign  = "left";
     e.vertalign  = "top";
     e.alignx     = "left";
@@ -401,7 +401,7 @@ _zc_bar( player, x, y, w, h, r, g, b, a, srt )
     e = newclienthudelem( player );
     e.foreground     = 1;
     e.hidewhendead   = 0;
-    e.hidewheninmenu = 0;
+    e.hidewheninmenu = 1;
     e.horzalign  = "left";
     e.vertalign  = "top";
     e.alignx     = "left";
@@ -986,7 +986,7 @@ t6rt_text_left( player, x, y, font, scale, r, g, b, sort )
     elem = newclienthudelem( player );
     elem.foreground = 1;
     elem.hidewhendead = 0;
-    elem.hidewheninmenu = 0;
+    elem.hidewheninmenu = 1;
     elem.horzalign = "left";
     elem.vertalign = "top";
     elem.alignx = "left";
@@ -1006,7 +1006,7 @@ t6rt_text_right( player, x, y, font, scale, r, g, b, sort )
     elem = newclienthudelem( player );
     elem.foreground = 1;
     elem.hidewhendead = 0;
-    elem.hidewheninmenu = 0;
+    elem.hidewheninmenu = 1;
     elem.horzalign = "left";
     elem.vertalign = "top";
     elem.alignx = "right";
@@ -1026,7 +1026,7 @@ t6rt_bar( player, x, y, w, h, r, g, b, a, sort )
     elem = newclienthudelem( player );
     elem.foreground = 1;
     elem.hidewhendead = 0;
-    elem.hidewheninmenu = 0;
+    elem.hidewheninmenu = 1;
     elem.horzalign = "left";
     elem.vertalign = "top";
     elem.alignx = "left";
