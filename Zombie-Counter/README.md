@@ -27,7 +27,7 @@ This GSC script adds a clean, stacked HUD to Black Ops 2 (T6) Zombies. It combin
 3. Call the script init from your loaded script path, adjusted to wherever you place it:
 
 ```gsc
-maps\mp\CounterHUD::init();
+maps\zm\CounterHUD::init();
 ```
 
 If you rename the file or place it in a different script folder, update the call path to match.
