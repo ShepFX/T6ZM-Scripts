@@ -17,9 +17,16 @@ init()
         return;
 
     level.zc_hud_initialized = true;
+    level.zc_pref_names = [];
+    level.zc_pref_values = [];
+    level.zc_prefs_loaded = false;
+    level.zc_prefs_dirty = false;
 
     t6rt_init_state();
     level thread t6rt_round_monitor();
+    level thread _zc_pref_flush_loop();
+    level thread _zc_pref_end_flush();
+    level thread _zc_pref_game_ended_flush();
     level thread _zc_connect_monitor();
     level thread _zc_chat_monitor();
 }
@@ -88,106 +95,130 @@ _zc_load_pref( player )
     if ( isdefined( player.pers["zc_enabled"] ) )
         return player.pers["zc_enabled"];
 
+    _zc_load_all_prefs();
+
     name = _zc_safe_name( player );
-
-    file = fs_fopen( _zc_prefs_file(), "read" );
-    if ( !isdefined( file ) || file == 0 )
+    idx = _zc_pref_cache_index( name );
+    if ( idx >= 0 )
     {
-        _zc_save_pref( player, 1 );
-        return 1;
+        player.pers["zc_enabled"] = level.zc_pref_values[idx];
+        return level.zc_pref_values[idx];
     }
 
-    len = fs_length( file );
-    if ( len <= 0 )
-    {
-        fs_fclose( file );
-        _zc_save_pref( player, 1 );
-        return 1;
-    }
-
-    content = fs_read( file, len );
-    fs_fclose( file );
-
-    if ( !isdefined( content ) )
-    {
-        _zc_save_pref( player, 1 );
-        return 1;
-    }
-
-    lines = _zc_split( content, "\n" );
-    for ( i = 0; i < lines.size; i++ )
-    {
-        line  = _zc_trim_cr( lines[i] );
-        parts = _zc_split( line, "|" );
-        if ( parts.size >= 2 && parts[0] == name )
-        {
-            enabled = ( parts[1] != "0" );
-            player.pers["zc_enabled"] = enabled;
-            return enabled;
-        }
-    }
-
-    // Player not in the file yet — add them with the default.
-    _zc_save_pref( player, 1 );
+    _zc_pref_cache_set( name, 1 );
+    player.pers["zc_enabled"] = 1;
+    level.zc_prefs_dirty = true;
     return 1;
 }
 
 _zc_save_pref( player, enabled )
 {
     player.pers["zc_enabled"] = enabled;
+    _zc_load_all_prefs();
+    _zc_pref_cache_set( _zc_safe_name( player ), enabled );
+    level.zc_prefs_dirty = true;
+}
 
-    name = _zc_safe_name( player );
-    val  = "1";
-    if ( !enabled )
-        val = "0";
+_zc_load_all_prefs()
+{
+    if ( isdefined( level.zc_prefs_loaded ) && level.zc_prefs_loaded )
+        return;
 
-    lines = [];
-    found = 0;
+    level.zc_prefs_loaded = true;
+    level.zc_pref_names = [];
+    level.zc_pref_values = [];
 
-    // Read existing entries so we can update in place.
     file = fs_fopen( _zc_prefs_file(), "read" );
-    if ( isdefined( file ) && file != 0 )
+    if ( !isdefined( file ) || file == 0 )
+        return;
+
+    len = fs_length( file );
+    if ( len <= 0 )
     {
-        len = fs_length( file );
-        if ( len > 0 )
-        {
-            content = fs_read( file, len );
-            fs_fclose( file );
-            if ( isdefined( content ) )
-            {
-                raw = _zc_split( content, "\n" );
-                for ( i = 0; i < raw.size; i++ )
-                {
-                    line = _zc_trim_cr( raw[i] );
-                    if ( line == "" ) continue;
-                    parts = _zc_split( line, "|" );
-                    if ( parts.size >= 2 && parts[0] == name )
-                    {
-                        lines[lines.size] = name + "|" + val;
-                        found = 1;
-                    }
-                    else
-                    {
-                        lines[lines.size] = line;
-                    }
-                }
-            }
-        }
-        else
-        {
-            fs_fclose( file );
-        }
+        fs_fclose( file );
+        return;
     }
 
-    if ( !found )
-        lines[lines.size] = name + "|" + val;
+    content = fs_read( file, len );
+    fs_fclose( file );
+
+    if ( !isdefined( content ) )
+        return;
+
+    lines = _zc_split( content, "\n" );
+    for ( i = 0; i < lines.size; i++ )
+    {
+        line  = _zc_trim_cr( lines[i] );
+        parts = _zc_split( line, "|" );
+        if ( parts.size >= 2 && parts[0] != "" )
+            _zc_pref_cache_set( parts[0], ( parts[1] != "0" ) );
+    }
+}
+
+_zc_pref_cache_index( name )
+{
+    for ( i = 0; i < level.zc_pref_names.size; i++ )
+    {
+        if ( level.zc_pref_names[i] == name )
+            return i;
+    }
+    return -1;
+}
+
+_zc_pref_cache_set( name, enabled )
+{
+    idx = _zc_pref_cache_index( name );
+    if ( idx < 0 )
+    {
+        idx = level.zc_pref_names.size;
+        level.zc_pref_names[idx] = name;
+    }
+    level.zc_pref_values[idx] = enabled;
+}
+
+_zc_pref_flush_loop()
+{
+    level endon( "end_game" );
+    level endon( "game_ended" );
+
+    for ( ;; )
+    {
+        wait 5;
+        _zc_flush_prefs();
+    }
+}
+
+_zc_pref_end_flush()
+{
+    level waittill( "end_game" );
+    _zc_flush_prefs();
+}
+
+_zc_pref_game_ended_flush()
+{
+    level waittill( "game_ended" );
+    _zc_flush_prefs();
+}
+
+_zc_flush_prefs()
+{
+    if ( !isdefined( level.zc_prefs_dirty ) || !level.zc_prefs_dirty )
+        return;
 
     file = fs_fopen( _zc_prefs_file(), "write" );
     if ( !isdefined( file ) || file == 0 )
         return;
-    for ( i = 0; i < lines.size; i++ )
-        fs_writeline( file, lines[i] );
+
+    for ( i = 0; i < level.zc_pref_names.size; i++ )
+    {
+        val = "1";
+        if ( !level.zc_pref_values[i] )
+            val = "0";
+        fs_writeline( file, level.zc_pref_names[i] + "|" + val );
+    }
+
     fs_fclose( file );
+    level.zc_prefs_dirty = false;
 }
 
 _zc_split( str, delim )
@@ -318,7 +349,8 @@ _zc_set_visible( show, t )
             self.zc_drow fadeovertime( t ); self.zc_drow.alpha = 1.0;
             self.zc_dval fadeovertime( t ); self.zc_dval.alpha = 1.0;
         }
-        // Force a full redraw on the next update tick
+        // Force values to refresh without playing every pulse animation at once.
+        self.zc_suppress_pulse = true;
         self.zc_prev_zleft   = -1;
         self.zc_prev_dleft   = -1;
         self.zc_prev_spawned = -1;
@@ -536,7 +568,8 @@ _zc_build_hud()
                 player.zc_zrow.color = ( 0.58, 0.58, 0.63 );
                 player.zc_zval.color = ( 0.58, 0.58, 0.63 );
             }
-            player.zc_zval thread _zc_pulse( player );
+            if ( !isdefined( player.zc_suppress_pulse ) || !player.zc_suppress_pulse )
+                player.zc_zval thread _zc_pulse( player );
         }
 
         // Dog row fade
@@ -579,7 +612,8 @@ _zc_build_hud()
         {
             player.zc_prev_dleft = total_d;
             player.zc_dval setvalue( total_d );
-            player.zc_dval thread _zc_pulse( player );
+            if ( !isdefined( player.zc_suppress_pulse ) || !player.zc_suppress_pulse )
+                player.zc_dval thread _zc_pulse( player );
         }
 
         // SPAWNED
@@ -587,8 +621,11 @@ _zc_build_hud()
         {
             player.zc_prev_spawned = spawned;
             player.zc_sval setvalue( spawned );
-            player.zc_sval thread _zc_pulse( player );
+            if ( !isdefined( player.zc_suppress_pulse ) || !player.zc_suppress_pulse )
+                player.zc_sval thread _zc_pulse( player );
         }
+
+        player.zc_suppress_pulse = false;
     }
 }
 
@@ -720,7 +757,7 @@ t6rt_round_poll_monitor()
 
     for ( ;; )
     {
-        wait 0.25;
+        wait 1;
 
         if ( !isdefined( level.round_number ) )
             continue;
