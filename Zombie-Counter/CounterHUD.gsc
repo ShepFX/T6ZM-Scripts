@@ -27,8 +27,75 @@ init()
     level thread _zc_pref_flush_loop();
     level thread _zc_pref_end_flush();
     level thread _zc_pref_game_ended_flush();
+    level thread _zc_level_counter();
     level thread _zc_connect_monitor();
     level thread _zc_chat_monitor();
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  LEVEL-WIDE ENEMY COUNT
+//  One thread walks the zombie array per tick and caches the totals; every
+//  player's HUD loop just reads them. Previously each player scanned the array
+//  independently, so the cost grew with the player count.
+// ════════════════════════════════════════════════════════════════════════════
+
+_zc_level_counter()
+{
+    level endon( "end_game" );
+
+    level.zc_total_z = 0;
+    level.zc_total_d = 0;
+    level.zc_spawned = 0;
+    level.zc_dog_round = 0;
+
+    for ( ;; )
+    {
+        wait 0.1;
+
+        // Nothing to count for while the map is empty.
+        if ( !isdefined( level.players ) || level.players.size == 0 )
+        {
+            wait 0.9;
+            continue;
+        }
+
+        is_dog_round = level flag_exists( "dog_round" ) && flag( "dog_round" );
+
+        live_z = 0;
+        live_d = 0;
+        enemies = _zc_get_enemies();
+        if ( isdefined( enemies ) )
+        {
+            for ( i = 0; i < enemies.size; i++ )
+            {
+                if ( !isdefined( enemies[i] ) )
+                    continue;
+                if ( isdefined( enemies[i].is_dog ) && enemies[i].is_dog )
+                    live_d++;
+                else
+                    live_z++;
+            }
+        }
+
+        remaining = 0;
+        if ( isdefined( level.zombie_total ) && level.zombie_total > 0 )
+            remaining = level.zombie_total;
+
+        if ( is_dog_round )
+        {
+            level.zc_total_z = live_z;
+            level.zc_total_d = live_d + remaining;
+        }
+        else
+        {
+            level.zc_total_z = live_z + remaining;
+            level.zc_total_d = live_d;
+        }
+
+        level.zc_spawned = live_z;
+        level.zc_dog_round = is_dog_round;
+    }
 }
 
 
@@ -513,45 +580,16 @@ _zc_build_hud()
         if ( !player.zc_enabled )
             continue;
 
-        // T6: dog_round flag covers the whole round.
-        is_dog_round = level flag_exists( "dog_round" ) && flag( "dog_round" );
+        // Totals are computed once per tick by _zc_level_counter(); just read them.
+        if ( !isdefined( level.zc_total_z ) )
+            continue;
 
-        live_z = 0;
-        live_d = 0;
-        enemies = _zc_get_enemies();
-        if ( isdefined( enemies ) )
-        {
-            for ( i = 0; i < enemies.size; i++ )
-            {
-                if ( !isdefined( enemies[i] ) )
-                    continue;
-                if ( isdefined( enemies[i].is_dog ) && enemies[i].is_dog )
-                    live_d++;
-                else
-                    live_z++;
-            }
-        }
-
-        if ( isdefined( level.zombie_total ) )
-            remaining = level.zombie_total;
-        else
-            remaining = 0;
-        if ( remaining < 0 )
-            remaining = 0;
-
-        if ( is_dog_round )
-        {
-            total_z = live_z;
-            total_d = live_d + remaining;
-        }
-        else
-        {
-            total_z = live_z + remaining;
-            total_d = live_d;
-        }
+        is_dog_round = level.zc_dog_round;
+        total_z = level.zc_total_z;
+        total_d = level.zc_total_d;
 
         // SPAWNED = currently alive on the map right now
-        spawned = live_z;
+        spawned = level.zc_spawned;
 
         // ZOMBIES
         if ( total_z != player.zc_prev_zleft )
