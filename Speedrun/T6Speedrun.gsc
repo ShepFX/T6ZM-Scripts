@@ -9,7 +9,8 @@
  * the game time it took. The website turns those lines into "fastest to round
  * N" and "fastest easter egg" boards per map and player count.
  *
- * File format - one line per event, appended, never rewritten:
+ * File format - one line per event, appended by the game. The website trims the
+ * file back to the lines still on a board after each read, so it never grows:
  *     <runId>|<mapToken>|<kind>|<target>|<ms>|<players>|<id:name,id:name>|<port>
  *
  *     runId     random id for this game, so the site can tell two games apart
@@ -56,7 +57,7 @@ init()
 	// fires; the rest sit idle until the game ends.
 	level thread sr_watch_ee( "transit_sidequest_achieved",  "tower_of_babble" );
 	level thread sr_watch_ee( "highrise_sidequest_achieved", "high_maintenance" );
-	level thread sr_watch_ee( "pop_goes_the_weasel_achieved", "pop_goes_the_weasel" );
+	level thread sr_watch_motd_ending();
 	level thread sr_watch_ee( "sq_maxis_complete",           "mined_games_maxis" );
 	level thread sr_watch_ee( "sq_richtofen_complete",       "mined_games_richtofen" );
 	level thread sr_watch_ee( "tomb_sidequest_complete",     "little_lost_girl" );
@@ -83,6 +84,7 @@ sr_watch_rounds()
 	level endon( "end_game" );
 
 	lastRound = -1;
+	sinceRoster = 0;
 
 	for ( ;; )
 	{
@@ -91,12 +93,21 @@ sr_watch_rounds()
 		if ( !isDefined( level.srStart ) || isDefined( level.srInvalid ) )
 			continue;
 
-		sr_update_roster();
+		// Once a second is plenty for the roster; the round is what needs
+		// watching closely. A round change scans immediately as well, so the
+		// round-2 lock happens on the exact tick.
+		sinceRoster++;
+		if ( sinceRoster >= 20 )
+		{
+			sinceRoster = 0;
+			sr_update_roster();
+		}
 
 		if ( !isDefined( level.round_number ) || level.round_number == lastRound )
 			continue;
 
 		lastRound = level.round_number;
+		sr_update_roster();
 
 		if ( lastRound >= 2 )
 			level.srRosterLocked = true;
@@ -113,6 +124,11 @@ sr_update_roster()
 	players = get_players();
 	for ( i = 0; i < players.size; i++ )
 	{
+		// Still connecting: no name yet. The next pass picks them up, which
+		// is in time, because the roster does not lock until round 2.
+		if ( !isDefined( players[ i ] ) || !isDefined( players[ i ].name ) )
+			continue;
+
 		guid = "" + players[ i ] getGuid();
 		slot = sr_roster_index( guid );
 
@@ -157,6 +173,27 @@ sr_watch_ee( notifyName, token )
 
 	if ( isDefined( level.srStart ) && !isDefined( level.srInvalid ) )
 		sr_log( "ee", token );
+}
+
+// Mob of the Dead has no completion notify that fits. The one its achievement
+// uses fires when the bridge showdown starts, not when it ends, and only in the
+// co-op branch - solo, or a bridge with nobody to fight, skips it entirely.
+// Both endings set level.winner once they are decided, so wait for the final
+// stage and then for that.
+sr_watch_motd_ending()
+{
+	level endon( "end_game" );
+
+	if ( level.script != "zm_prison" )
+		return;
+
+	level waittill( "stage_final" );
+
+	while ( !isDefined( level.winner ) )
+		wait 0.05;
+
+	if ( isDefined( level.srStart ) && !isDefined( level.srInvalid ) )
+		sr_log( "ee", "pop_goes_the_weasel" );
 }
 
 sr_is_milestone( rnd )
@@ -206,10 +243,18 @@ sr_player_blocks()
 // Strip the characters the line format uses so a name can never break parsing.
 sr_clean_name( name )
 {
+	if ( !isDefined( name ) )
+		return "Player";
+
+	// The count is bounded as well as tested. If name is ever not a string,
+	// name.size is undefined and an unbounded loop here is killed by the
+	// engine - taking the calling thread, and the whole run, with it.
 	out = "";
-	for ( i = 0; i < name.size; i++ )
+	for ( i = 0; i < 64 && i < name.size; i++ )
 	{
 		c = name[ i ];
+		if ( !isDefined( c ) )
+			break;
 		if ( c != "|" && c != ":" && c != "," && c != ";" )
 			out += c;
 	}
