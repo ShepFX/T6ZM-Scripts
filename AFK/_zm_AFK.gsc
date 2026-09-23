@@ -5,7 +5,7 @@
 //
 // AFK System for T6 Zombies (Plutonium)
 // Usage: .afk in chat to toggle AFK mode
-// Requires: Round 20+, 2-hour cooldown between uses
+// Requires: Round 20+, 45-minute cooldown between uses
 //
 
 init()
@@ -14,7 +14,7 @@ init()
 
 	level.afk_system = spawnstruct();
 	level.afk_system.min_round = 20;
-	level.afk_system.cooldown_ms = 7200000;
+	level.afk_system.cooldown_ms = 2700000;   // 45 minutes
 	level.afk_system.duration_s = 900;
 	level.afk_system.activation_delay_s = 60;
 	level.afk_system.round_frozen = false;

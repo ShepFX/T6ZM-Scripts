@@ -24,7 +24,7 @@ The following variables can be adjusted within the `init()` function of the scri
 | Variable | Default Value | Description |
 | :--- | :--- | :--- |
 | `min_round` | 20 | Minimum round required to use the command. |
-| `cooldown_ms` | 7,200,000 (2 hrs) | Time in milliseconds before a player can use AFK again. |
+| `cooldown_ms` | 2,700,000 (45 min) | Time in milliseconds before a player can use AFK again. |
 | `duration_s` | 900 (15 mins) | Maximum time a player can stay AFK before being forced back. |
 | `activation_delay_s` | 60 | The "grace period" before AFK mode actually kicks in. |
 

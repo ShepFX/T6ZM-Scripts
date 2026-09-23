@@ -20,7 +20,7 @@ size.
 |---|---|---|
 | TranZit | `transit_sidequest_achieved` | Tower of Babble |
 | Die Rise | `highrise_sidequest_achieved` | High Maintenance |
-| Mob of the Dead | `pop_goes_the_weasel_achieved` | Pop Goes the Weasel |
+| Mob of the Dead | `stage_final`, then `level.winner` set | Pop Goes the Weasel |
 | Buried | `sq_maxis_complete` / `sq_richtofen_complete` | Mined Games |
 | Origins | `tomb_sidequest_complete` | Little Lost Girl |
 
@@ -35,3 +35,10 @@ HighRound files:
 
 Copy `T6Speedrun.gsc` into `scripts/zm/` on the server alongside
 `T6RoundSaverNew.gsc`. Plutonium runs it automatically at map load.
+
+Mob of the Dead is the exception to "use the achievement's notify". Its
+`pop_goes_the_weasel_achieved` fires when the bridge showdown *starts*, and only
+in the co-op branch - solo, or a bridge with nobody to fight, never sends it.
+The logger waits for `stage_final` and then for `level.winner`, which both
+endings set once they are decided, so both endings and solo runs are timed at
+the real finish.
