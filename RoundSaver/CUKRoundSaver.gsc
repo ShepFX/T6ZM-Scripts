@@ -50,6 +50,8 @@ high_round_tracker()
 		level.highRoundTwoPlayers = int( highroundinfo[ 1 ] );
 		level.highRoundThreePlayers = int( highroundinfo[ 2 ] );
 		level.highRoundFourPlayers = int( highroundinfo[ 3 ] );
+		
+		// Stores ID:Name blocks (e.g., "5:PlayerOne,6:PlayerTwo")
 		level.highRoundPlayersOne = highroundinfo[ 4 ];
 		level.highRoundPlayersTwo = highroundinfo[ 5 ];
 		level.highRoundPlayersThree = highroundinfo[ 6 ];
@@ -84,15 +86,75 @@ high_round_tracker()
 	}
 }
 
+// Dynamically decodes the "ID:Name" blocks and checks live statuses
+get_current_names_from_ids( data_string )
+{
+	if( data_string == "None" || data_string == "" )
+		return "None";
+
+	player_blocks = strToK( data_string, "," );
+	current_players = get_players();
+	resolved_names = "";
+
+	for( i = 0; i < player_blocks.size; i++ )
+	{
+		block = player_blocks[i];
+		split_block = strToK( block, ":" );
+		
+		if( split_block.size < 2 )
+			continue;
+
+		target_id = split_block[0];
+		saved_name = split_block[1];
+		found_name = ""; 
+
+		// Step 1: Scan online players for a matching live IW4MAdmin ID
+		foreach( player in current_players )
+		{
+			if( isDefined( player.persistentClientId ) && ( "" + player.persistentClientId ) == target_id )
+			{
+				found_name = player.name; // Use their live, updated name
+				break;
+			}
+		}
+
+		// Step 2: Fallback to the saved name if the player is offline
+		if( found_name == "" )
+		{
+			found_name = saved_name; 
+		}
+
+		if( resolved_names == "" )
+			resolved_names = found_name;
+		else
+			resolved_names = resolved_names + ", " + found_name;
+	}
+
+	return resolved_names;
+}
+
 updateHighRoundRecord( numPlayers, players )
 {
 	level.highRoundPlayers = "";
 	for ( i = 0; i < players.size; i++ )
 	{
-		if( level.highRoundPlayers == "" )
-			level.highRoundPlayers = players[i].name;
+		player_id = "";
+		if ( isDefined( players[i].persistentClientId ) )
+			player_id = "" + players[i].persistentClientId;
 		else
-			level.highRoundPlayers = level.highRoundPlayers + ", " + players[i].name;
+			player_id = "" + players[i] getGuid();
+
+		// Clean names to prevent string parsing errors (removes colons/commas from names)
+		clean_name = players[i].name;
+		clean_name = colons_and_commas_remover(clean_name);
+
+		// Format saved as ID:Name
+		data_block = player_id + ":" + clean_name;
+
+		if( level.highRoundPlayers == "" )
+			level.highRoundPlayers = data_block;
+		else
+			level.highRoundPlayers = level.highRoundPlayers + "," + data_block;
 	}
 
 	if( numPlayers == 1 )
@@ -116,20 +178,20 @@ updateHighRoundRecord( numPlayers, players )
 		level.highRoundPlayersFour = level.highRoundPlayers;
 	}
 
-	// Announce new record on left side, staggered
+	// Announce new record, updating names if online, falling back to file names if offline
 	foreach( player in level.players )
 	{
 		player tell( "^1NEW RECORD!" );
 		wait 2;
 
 		if( numPlayers == 1 )
-			player tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + level.highRoundPlayersOne + ")" );
+			player tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + get_current_names_from_ids(level.highRoundPlayersOne) + ")" );
 		else if( numPlayers == 2 ) 
-			player tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + level.highRoundPlayersTwo + ")" );
+			player tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersTwo) + ")" );
 		else if( numPlayers == 3 ) 
-			player tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + level.highRoundPlayersThree + ")" );
+			player tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersThree) + ")" );
 		else if( numPlayers == 4 ) 
-			player tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + level.highRoundPlayersFour + ")" );
+			player tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersFour) + ")" );
 	}
 
 	log_highround_record( 
@@ -142,6 +204,21 @@ updateHighRoundRecord( numPlayers, players )
 		level.highRoundPlayersThree + ";" + 
 		level.highRoundPlayersFour 
 	);
+}
+
+colons_and_commas_remover( name_string )
+{
+	output = "";
+	for( i = 0; i < name_string.size; i++ )
+	{
+		if( name_string[i] != ":" && name_string[i] != "," && name_string[i] != ";" )
+		{
+			output += name_string[i];
+		}
+	}
+	if( output == "" ) 
+		return "Player";
+	return output;
 }
 
 log_highround_record( newRecord )
@@ -229,29 +306,28 @@ high_round_info_giver()
 				wait 2;
 
 				if( numPlayers == 1 )
-					player tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + level.highRoundPlayersOne + ")" );
+					player tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + get_current_names_from_ids(level.highRoundPlayersOne) + ")" );
 				else if( numPlayers == 2 )
-					player tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + level.highRoundPlayersTwo + ")" );
+					player tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersTwo) + ")" );
 				else if( numPlayers == 3 )
-					player tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + level.highRoundPlayersThree + ")" );
+					player tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersThree) + ")" );
 				else if( numPlayers == 4 )
-					player tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + level.highRoundPlayersFour + ")" );
+					player tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersFour) + ")" );
 			}
 		}
 	}
 }
-
 
 high_round_info()
 {
 	wait 6;
 	self tell( "^7High Round Records:" );
 	wait 2;
-	self tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + level.highRoundPlayersOne + ")" );
+	self tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + get_current_names_from_ids(level.highRoundPlayersOne) + ")" );
 	wait 2;
-	self tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + level.highRoundPlayersTwo + ")" );
+	self tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersTwo) + ")" );
 	wait 2;
-	self tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + level.highRoundPlayersThree + ")" );
+	self tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersThree) + ")" );
 	wait 2;
-	self tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + level.highRoundPlayersFour + ")" );
+	self tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersFour) + ")" );
 }

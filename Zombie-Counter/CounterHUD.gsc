@@ -17,16 +17,8 @@ init()
         return;
 
     level.zc_hud_initialized = true;
-    level.zc_pref_names = [];
-    level.zc_pref_values = [];
-    level.zc_prefs_loaded = false;
-    level.zc_prefs_dirty = false;
-
     t6rt_init_state();
     level thread t6rt_round_monitor();
-    level thread _zc_pref_flush_loop();
-    level thread _zc_pref_end_flush();
-    level thread _zc_pref_game_ended_flush();
     level thread _zc_level_counter();
     level thread _zc_connect_monitor();
     level thread _zc_chat_monitor();
@@ -123,195 +115,21 @@ _zc_connect_monitor()
 
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PER-PLAYER PREFERENCE  (single file, one line per player: "name|enabled")
+//  PER-PLAYER PREFERENCE  (memory only; lasts for the current game)
 // ════════════════════════════════════════════════════════════════════════════
-
-_zc_prefs_file()
-{
-    return "scriptdata/zc_prefs.txt";
-}
-
-// Strip color codes (^n) and problematic chars so the name is a clean key.
-_zc_safe_name( player )
-{
-    raw = player.playername;
-    if ( !isdefined( raw ) || raw == "" )
-        raw = player.name;
-    if ( !isdefined( raw ) || raw == "" )
-        return "p" + player getEntityNumber();
-
-    result = "";
-    skip   = 0;
-    for ( i = 0; i < raw.size; i++ )
-    {
-        if ( skip > 0 ) { skip--; continue; }
-        c = raw[i];
-        if ( c == "^" ) { skip = 1; continue; }
-        if ( c == " " || c == "/" || c == "\\" || c == ":" || c == "|" )
-            result += "_";
-        else
-            result += c;
-    }
-    if ( result == "" )
-        return "p" + player getEntityNumber();
-    return result;
-}
 
 _zc_load_pref( player )
 {
     if ( isdefined( player.pers["zc_enabled"] ) )
         return player.pers["zc_enabled"];
 
-    _zc_load_all_prefs();
-
-    name = _zc_safe_name( player );
-    idx = _zc_pref_cache_index( name );
-    if ( idx >= 0 )
-    {
-        player.pers["zc_enabled"] = level.zc_pref_values[idx];
-        return level.zc_pref_values[idx];
-    }
-
-    _zc_pref_cache_set( name, 1 );
     player.pers["zc_enabled"] = 1;
-    level.zc_prefs_dirty = true;
     return 1;
 }
 
 _zc_save_pref( player, enabled )
 {
     player.pers["zc_enabled"] = enabled;
-    _zc_load_all_prefs();
-    _zc_pref_cache_set( _zc_safe_name( player ), enabled );
-    level.zc_prefs_dirty = true;
-}
-
-_zc_load_all_prefs()
-{
-    if ( isdefined( level.zc_prefs_loaded ) && level.zc_prefs_loaded )
-        return;
-
-    level.zc_prefs_loaded = true;
-    level.zc_pref_names = [];
-    level.zc_pref_values = [];
-
-    file = fs_fopen( _zc_prefs_file(), "read" );
-    if ( !isdefined( file ) || file == 0 )
-        return;
-
-    len = fs_length( file );
-    if ( len <= 0 )
-    {
-        fs_fclose( file );
-        return;
-    }
-
-    content = fs_read( file, len );
-    fs_fclose( file );
-
-    if ( !isdefined( content ) )
-        return;
-
-    lines = _zc_split( content, "\n" );
-    for ( i = 0; i < lines.size; i++ )
-    {
-        line  = _zc_trim_cr( lines[i] );
-        parts = _zc_split( line, "|" );
-        if ( parts.size >= 2 && parts[0] != "" )
-            _zc_pref_cache_set( parts[0], ( parts[1] != "0" ) );
-    }
-}
-
-_zc_pref_cache_index( name )
-{
-    for ( i = 0; i < level.zc_pref_names.size; i++ )
-    {
-        if ( level.zc_pref_names[i] == name )
-            return i;
-    }
-    return -1;
-}
-
-_zc_pref_cache_set( name, enabled )
-{
-    idx = _zc_pref_cache_index( name );
-    if ( idx < 0 )
-    {
-        idx = level.zc_pref_names.size;
-        level.zc_pref_names[idx] = name;
-    }
-    level.zc_pref_values[idx] = enabled;
-}
-
-_zc_pref_flush_loop()
-{
-    level endon( "end_game" );
-    level endon( "game_ended" );
-
-    for ( ;; )
-    {
-        wait 5;
-        _zc_flush_prefs();
-    }
-}
-
-_zc_pref_end_flush()
-{
-    level waittill( "end_game" );
-    _zc_flush_prefs();
-}
-
-_zc_pref_game_ended_flush()
-{
-    level waittill( "game_ended" );
-    _zc_flush_prefs();
-}
-
-_zc_flush_prefs()
-{
-    if ( !isdefined( level.zc_prefs_dirty ) || !level.zc_prefs_dirty )
-        return;
-
-    file = fs_fopen( _zc_prefs_file(), "write" );
-    if ( !isdefined( file ) || file == 0 )
-        return;
-
-    for ( i = 0; i < level.zc_pref_names.size; i++ )
-    {
-        val = "1";
-        if ( !level.zc_pref_values[i] )
-            val = "0";
-        fs_writeline( file, level.zc_pref_names[i] + "|" + val );
-    }
-
-    fs_fclose( file );
-    level.zc_prefs_dirty = false;
-}
-
-_zc_split( str, delim )
-{
-    parts   = [];
-    current = "";
-    for ( i = 0; i < str.size; i++ )
-    {
-        if ( str[i] == delim )
-        {
-            parts[parts.size] = current;
-            current = "";
-        }
-        else
-            current += str[i];
-    }
-    if ( current != "" )
-        parts[parts.size] = current;
-    return parts;
-}
-
-_zc_trim_cr( s )
-{
-    if ( s.size > 0 && getSubStr( s, s.size - 1, s.size ) == "\r" )
-        return getSubStr( s, 0, s.size - 1 );
-    return s;
 }
 
 
@@ -690,6 +508,18 @@ t6rt_init_state()
     level.t6rt_prev_time_2 = "";
     level.t6rt_generation = 0;
     level.t6rt_timer_generation = 0;
+
+    // Total run time: set once when round 1 starts and never reset, so the
+    // headline figure matches what the speedrun boards rank runs on.
+    level.t6rt_total_start_ms = 0;
+    level.t6rt_total_generation = 0;
+
+    // The split for the round that just ended drops in below the total, then
+    // hides itself again.
+    level.t6rt_split_round = 0;
+    level.t6rt_split_time = "";
+    level.t6rt_split_generation = 0;
+    level.t6rt_split_seconds = 6;
 }
 
 t6rt_round_monitor()
@@ -728,6 +558,13 @@ t6rt_start_round( round )
     if ( level.t6rt_round_active && level.t6rt_current_round == round && level.t6rt_round_start_ms == start_ms )
         return;
 
+    // First round of the game starts the run clock.
+    if ( level.t6rt_total_start_ms <= 0 && round > 0 )
+    {
+        level.t6rt_total_start_ms = start_ms;
+        level.t6rt_total_generation++;
+    }
+
     level.t6rt_current_round = round;
     level.t6rt_current_time = "";
     level.t6rt_round_active = true;
@@ -755,7 +592,12 @@ t6rt_store_split( elapsed_ms )
     level.t6rt_prev_round_1 = level.t6rt_current_round;
     level.t6rt_prev_time_1 = t6rt_format_time( elapsed_ms );
 
+    level.t6rt_split_round = level.t6rt_current_round;
+    level.t6rt_split_time = t6rt_format_time( elapsed_ms );
+    level.t6rt_split_generation++;
+
     level notify( "t6rt_refresh" );
+    level notify( "t6rt_split" );
 }
 
 t6rt_round_poll_monitor()
@@ -826,7 +668,9 @@ t6rt_build_hud()
     if ( level flag_exists( "dog_round" ) && flag( "dog_round" ) )
         py = 83;
     w = 80;
-    h = 54;
+    // Just the title and the run clock by default; the split row below adds
+    // its own background only while it is on screen.
+    h = 30;
 
     ar = 1.00;
     ag = 0.55;
@@ -834,36 +678,114 @@ t6rt_build_hud()
 
     player.t6rt_time_x = px + 75;
     player.t6rt_time_y = py + 17;
+    player.t6rt_split_y = py + 31;
 
     player.t6rt_bg = t6rt_bar( player, px + 0, py + 0, w, h, 0.04, 0.04, 0.07, 0.72, 5 );
     player.t6rt_accent = t6rt_bar( player, px + w, py + 0, 4, h, ar, ag, ab, 0.90, 6 );
     player.t6rt_sep = t6rt_bar( player, px + 4, py + 13, w - 8, 1, ar, ag, ab, 0.40, 6 );
 
     player.t6rt_title = t6rt_text_left( player, px + 5, py + 2, "default", 1.0, ar, ag, ab, 7 );
-    player.t6rt_title settext( "SPLITS" );
+    player.t6rt_title settext( "RUN" );
 
-    player.t6rt_cur_label = t6rt_text_left( player, px + 5, py + 17, "small", 1.0, 0.58, 0.58, 0.63, 7 );
-    player.t6rt_cur_label settext( "R0" );
+    player.t6rt_total_label = t6rt_text_left( player, px + 5, py + 17, "small", 1.0, 0.58, 0.58, 0.63, 7 );
+    player.t6rt_total_label settext( "TOTAL" );
 
-    player.t6rt_cur_time = t6rt_text_right( player, player.t6rt_time_x, player.t6rt_time_y, "small", 1.0, 1.00, 1.00, 1.00, 7 );
-    player.t6rt_cur_time settext( "--:--" );
+    player.t6rt_total_time = t6rt_text_right( player, player.t6rt_time_x, player.t6rt_time_y, "small", 1.0, 1.00, 1.00, 1.00, 7 );
+    player.t6rt_total_time settext( "--:--" );
 
-    player.t6rt_prev1_label = t6rt_text_left( player, px + 5, py + 30, "small", 1.0, 0.58, 0.58, 0.63, 7 );
-    player.t6rt_prev1_label settext( "LAST" );
+    // Split row: same width, sitting directly under the panel, hidden until a
+    // round ends. Its own bar and accent so the panel appears to grow.
+    player.t6rt_split_bg = t6rt_bar( player, px + 0, py + 30, w, 14, 0.04, 0.04, 0.07, 0.72, 5 );
+    player.t6rt_split_bg.alpha = 0;
 
-    player.t6rt_prev1_time = t6rt_text_right( player, player.t6rt_time_x, py + 30, "small", 1.0, 0.72, 0.78, 0.86, 7 );
-    player.t6rt_prev1_time settext( "--:--" );
+    player.t6rt_split_accent = t6rt_bar( player, px + w, py + 30, 4, 14, ar, ag, ab, 0.90, 6 );
+    player.t6rt_split_accent.alpha = 0;
 
-    player.t6rt_prev2_label = t6rt_text_left( player, px + 5, py + 42, "small", 1.0, 0.45, 0.48, 0.55, 7 );
-    player.t6rt_prev2_label settext( "PREV" );
+    player.t6rt_split_label = t6rt_text_left( player, px + 5, player.t6rt_split_y, "small", 1.0, ar, ag, ab, 7 );
+    player.t6rt_split_label settext( "R0" );
+    player.t6rt_split_label.alpha = 0;
 
-    player.t6rt_prev2_time = t6rt_text_right( player, player.t6rt_time_x, py + 42, "small", 1.0, 0.55, 0.60, 0.68, 7 );
-    player.t6rt_prev2_time settext( "--:--" );
+    player.t6rt_split_time = t6rt_text_right( player, player.t6rt_time_x, player.t6rt_split_y, "small", 1.0, 0.90, 0.94, 1.00, 7 );
+    player.t6rt_split_time settext( "--:--" );
+    player.t6rt_split_time.alpha = 0;
+
+    player.t6rt_split_showing = false;
+    player.t6rt_seen_split_generation = level.t6rt_split_generation;
 
     if ( !player.t6rt_enabled )
         player t6rt_set_visible( 0, 0 );
 
     player thread t6rt_refresh_loop();
+    player thread t6rt_split_loop();
+}
+
+// Shows the round that just finished, then tidies itself away so only the run
+// clock is left. A second round ending while it is up simply restarts it.
+t6rt_split_loop()
+{
+    self endon( "disconnect" );
+    level endon( "end_game" );
+    level endon( "game_ended" );
+
+    for ( ;; )
+    {
+        level waittill( "t6rt_split" );
+
+        if ( !isdefined( self.t6rt_split_label ) )
+            continue;
+
+        self.t6rt_seen_split_generation = level.t6rt_split_generation;
+        self.t6rt_split_label settext( "R" + level.t6rt_split_round );
+        self.t6rt_split_time settext( level.t6rt_split_time );
+
+        if ( !self.t6rt_enabled )
+            continue;
+
+        self thread t6rt_split_show_then_hide();
+    }
+}
+
+t6rt_split_show_then_hide()
+{
+    self endon( "disconnect" );
+    self notify( "t6rt_split_showing" );
+    self endon( "t6rt_split_showing" );
+    level endon( "end_game" );
+    level endon( "game_ended" );
+
+    self.t6rt_split_showing = true;
+    self t6rt_split_set_visible( 1, 0.15 );
+
+    wait level.t6rt_split_seconds;
+
+    self t6rt_split_set_visible( 0, 0.4 );
+    self.t6rt_split_showing = false;
+}
+
+t6rt_split_set_visible( visible, fade_time )
+{
+    if ( !isdefined( self.t6rt_split_bg ) )
+        return;
+
+    bg_alpha = 0;
+    accent_alpha = 0;
+    text_alpha = 0;
+
+    if ( visible )
+    {
+        bg_alpha = 0.72;
+        accent_alpha = 0.90;
+        text_alpha = 1;
+    }
+
+    self.t6rt_split_bg fadeovertime( fade_time );
+    self.t6rt_split_bg.alpha = bg_alpha;
+    self.t6rt_split_accent fadeovertime( fade_time );
+    self.t6rt_split_accent.alpha = accent_alpha;
+    self.t6rt_split_label fadeovertime( fade_time );
+    self.t6rt_split_label.alpha = text_alpha;
+    self.t6rt_split_time fadeovertime( fade_time );
+    self.t6rt_split_time.alpha = text_alpha;
 }
 
 t6rt_refresh_loop()
@@ -885,57 +807,23 @@ t6rt_redraw()
 {
     self.t6rt_seen_generation = level.t6rt_generation;
 
-    if ( isdefined( self.t6rt_cur_label ) )
-        self.t6rt_cur_label settext( "R" + level.t6rt_current_round );
-
-    if ( isdefined( self.t6rt_cur_time ) && self.t6rt_seen_timer_generation != level.t6rt_timer_generation )
+    // The run clock counts up on the client, so it only has to be handed a new
+    // starting value when the run itself changes - not on every round.
+    if ( isdefined( self.t6rt_total_time ) && self.t6rt_seen_timer_generation != level.t6rt_total_generation )
     {
-        self.t6rt_seen_timer_generation = level.t6rt_timer_generation;
-        self.t6rt_cur_time destroy();
-        self.t6rt_cur_time = t6rt_text_right( self, self.t6rt_time_x, self.t6rt_time_y, "small", 1.0, 1.00, 1.00, 1.00, 7 );
+        self.t6rt_seen_timer_generation = level.t6rt_total_generation;
+        self.t6rt_total_time destroy();
+        self.t6rt_total_time = t6rt_text_right( self, self.t6rt_time_x, self.t6rt_time_y, "small", 1.0, 1.00, 1.00, 1.00, 7 );
 
-        if ( isdefined( level.t6rt_round_active ) && level.t6rt_round_active )
-            self.t6rt_cur_time settenthstimerup( t6rt_elapsed_seconds() + 0.1 );
-        else if ( isdefined( level.t6rt_current_time ) && level.t6rt_current_time != "" )
-            self.t6rt_cur_time settext( level.t6rt_current_time );
+        if ( level.t6rt_total_start_ms > 0 )
+            self.t6rt_total_time settenthstimerup( t6rt_total_elapsed_seconds() + 0.1 );
         else
-            self.t6rt_cur_time settext( "--:--" );
+            self.t6rt_total_time settext( "--:--" );
 
         if ( isdefined( self.t6rt_enabled ) && !self.t6rt_enabled )
-            self.t6rt_cur_time.alpha = 0;
+            self.t6rt_total_time.alpha = 0;
     }
 
-    if ( isdefined( self.t6rt_prev1_label ) )
-    {
-        if ( level.t6rt_prev_round_1 > 0 )
-            self.t6rt_prev1_label settext( "R" + level.t6rt_prev_round_1 );
-        else
-            self.t6rt_prev1_label settext( "LAST" );
-    }
-
-    if ( isdefined( self.t6rt_prev1_time ) )
-    {
-        if ( level.t6rt_prev_time_1 != "" )
-            self.t6rt_prev1_time settext( level.t6rt_prev_time_1 );
-        else
-            self.t6rt_prev1_time settext( "--:--" );
-    }
-
-    if ( isdefined( self.t6rt_prev2_label ) )
-    {
-        if ( level.t6rt_prev_round_2 > 0 )
-            self.t6rt_prev2_label settext( "R" + level.t6rt_prev_round_2 );
-        else
-            self.t6rt_prev2_label settext( "PREV" );
-    }
-
-    if ( isdefined( self.t6rt_prev2_time ) )
-    {
-        if ( level.t6rt_prev_time_2 != "" )
-            self.t6rt_prev2_time settext( level.t6rt_prev_time_2 );
-        else
-            self.t6rt_prev2_time settext( "--:--" );
-    }
 }
 
 t6rt_set_visible( visible, fade_time )
@@ -964,12 +852,8 @@ t6rt_set_visible( visible, fade_time )
 
     elems = [];
     elems[0] = self.t6rt_title;
-    elems[1] = self.t6rt_cur_label;
-    elems[2] = self.t6rt_cur_time;
-    elems[3] = self.t6rt_prev1_label;
-    elems[4] = self.t6rt_prev1_time;
-    elems[5] = self.t6rt_prev2_label;
-    elems[6] = self.t6rt_prev2_time;
+    elems[1] = self.t6rt_total_label;
+    elems[2] = self.t6rt_total_time;
 
     for ( i = 0; i < elems.size; i++ )
     {
@@ -979,6 +863,12 @@ t6rt_set_visible( visible, fade_time )
         elems[i] fadeovertime( fade_time );
         elems[i].alpha = alpha;
     }
+
+    // The split row follows the panel, but only while it is actually up.
+    if ( !visible || !isdefined( self.t6rt_split_showing ) || !self.t6rt_split_showing )
+        self t6rt_split_set_visible( 0, fade_time );
+    else
+        self t6rt_split_set_visible( 1, fade_time );
 }
 
 t6rt_move( py )
@@ -990,14 +880,19 @@ t6rt_move( py )
     self.t6rt_accent.y = py;
     self.t6rt_sep.y = py + 13;
     self.t6rt_title.y = py + 2;
-    self.t6rt_cur_label.y = py + 17;
+    self.t6rt_total_label.y = py + 17;
     self.t6rt_time_y = py + 17;
-    if ( isdefined( self.t6rt_cur_time ) )
-        self.t6rt_cur_time.y = self.t6rt_time_y;
-    self.t6rt_prev1_label.y = py + 30;
-    self.t6rt_prev1_time.y = py + 30;
-    self.t6rt_prev2_label.y = py + 42;
-    self.t6rt_prev2_time.y = py + 42;
+    if ( isdefined( self.t6rt_total_time ) )
+        self.t6rt_total_time.y = self.t6rt_time_y;
+
+    self.t6rt_split_y = py + 31;
+    if ( isdefined( self.t6rt_split_bg ) )
+    {
+        self.t6rt_split_bg.y = py + 30;
+        self.t6rt_split_accent.y = py + 30;
+        self.t6rt_split_label.y = self.t6rt_split_y;
+        self.t6rt_split_time.y = self.t6rt_split_y;
+    }
 }
 
 t6rt_text_left( player, x, y, font, scale, r, g, b, sort )
@@ -1073,6 +968,18 @@ t6rt_format_time( elapsed_ms )
         second_text = "0" + seconds;
 
     return minutes + ":" + second_text;
+}
+
+t6rt_total_elapsed_seconds()
+{
+    if ( !isdefined( level.t6rt_total_start_ms ) || level.t6rt_total_start_ms <= 0 )
+        return 0;
+
+    elapsed_ms = gettime() - level.t6rt_total_start_ms;
+    if ( elapsed_ms < 0 )
+        elapsed_ms = 0;
+
+    return elapsed_ms / 1000;
 }
 
 t6rt_elapsed_seconds()
