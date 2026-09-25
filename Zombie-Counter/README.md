@@ -15,9 +15,8 @@ This GSC script adds a clean, stacked HUD to Black Ops 2 (T6) Zombies. It combin
 ## Commands
 
 ```text
-.counter  Toggle only the enemy counter
-.timer    Toggle only the round timer/splits panel
-.hud      Toggle both panels together
+.counter  Toggle the enemy counter
+.timer    Toggle the run timer
 ```
 
 ## Installation

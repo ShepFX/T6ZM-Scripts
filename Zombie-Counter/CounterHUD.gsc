@@ -1,6 +1,6 @@
 // T6 ZM - Enemy Counter + Round Timer HUD
 // Drop into maps/mp/zombies/ alongside other _zm_* scripts.
-// Commands: .counter toggles enemy counter, .timer toggles round timer, .hud toggles both.
+// Commands: .counter toggles enemy counter, .timer toggles run timer.
 
 #include common_scripts\utility;
 #include maps\mp\_utility;
@@ -348,25 +348,6 @@ _zc_chat_monitor()
 
             player.t6rt_enabled = !player.t6rt_enabled;
             player t6rt_set_visible( player.t6rt_enabled, 0.20 );
-        }
-        else if ( command == ".hud" )
-        {
-            hud_enabled = 1;
-            if ( ( isdefined( player.zc_enabled ) && player.zc_enabled ) || ( isdefined( player.t6rt_enabled ) && player.t6rt_enabled ) )
-                hud_enabled = 0;
-
-            if ( isdefined( player.zc_bg ) )
-            {
-                player.zc_enabled = hud_enabled;
-                _zc_save_pref( player, player.zc_enabled );
-                player _zc_set_visible( player.zc_enabled, 0.20 );
-            }
-
-            if ( isdefined( player.t6rt_ready ) && player.t6rt_ready )
-            {
-                player.t6rt_enabled = hud_enabled;
-                player t6rt_set_visible( player.t6rt_enabled, 0.20 );
-            }
         }
     }
 }
