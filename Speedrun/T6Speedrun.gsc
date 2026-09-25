@@ -9,8 +9,7 @@
  * the game time it took. The website turns those lines into "fastest to round
  * N" and "fastest easter egg" boards per map and player count.
  *
- * File format - one line per event, appended by the game. The website trims the
- * file back to the lines still on a board after each read, so it never grows:
+ * File format - one line per event, appended, never rewritten:
  *     <runId>|<mapToken>|<kind>|<target>|<ms>|<players>|<id:name,id:name>|<port>
  *
  *     runId     random id for this game, so the site can tell two games apart
@@ -35,254 +34,229 @@
 
 init()
 {
-	level.srFile = getDvar( "fs_homepath" ) + "/logs/Speedrun.txt";
-	level.srRunId = randomInt( 1000000 ) + "-" + getTime();
-	level.srMapToken = sr_map_token();
+    level.srFile = getDvar( "fs_homepath" ) + "/logs/Speedrun.txt";
+    level.srRunId = randomInt( 1000000 ) + "-" + getTime();
+    level.srMapToken = sr_map_token();
 
-	level.srMilestones = [];
-	level.srMilestones[ level.srMilestones.size ] = 10;
-	level.srMilestones[ level.srMilestones.size ] = 20;
-	level.srMilestones[ level.srMilestones.size ] = 30;
-	level.srMilestones[ level.srMilestones.size ] = 40;
-	level.srMilestones[ level.srMilestones.size ] = 50;
-	level.srMilestones[ level.srMilestones.size ] = 70;
-	level.srMilestones[ level.srMilestones.size ] = 100;
+    level.srMilestones = [];
+    level.srMilestones[ level.srMilestones.size ] = 10;
+    level.srMilestones[ level.srMilestones.size ] = 20;
+    level.srMilestones[ level.srMilestones.size ] = 30;
+    level.srMilestones[ level.srMilestones.size ] = 40;
+    level.srMilestones[ level.srMilestones.size ] = 50;
+    level.srMilestones[ level.srMilestones.size ] = 70;
+    level.srMilestones[ level.srMilestones.size ] = 100;
 
-	sr_write_boot_line_if_new();
+    sr_write_boot_line_if_new();
 
-	level thread sr_wait_for_start();
-	level thread sr_watch_rounds();
+    level thread sr_wait_for_start();
+    level thread sr_watch_rounds();
 
-	// Main quest completion notifies, one per map. Only the current map's ever
-	// fires; the rest sit idle until the game ends.
-	level thread sr_watch_ee( "transit_sidequest_achieved",  "tower_of_babble" );
-	level thread sr_watch_ee( "highrise_sidequest_achieved", "high_maintenance" );
-	level thread sr_watch_motd_ending();
-	level thread sr_watch_ee( "sq_maxis_complete",           "mined_games_maxis" );
-	level thread sr_watch_ee( "sq_richtofen_complete",       "mined_games_richtofen" );
-	level thread sr_watch_ee( "tomb_sidequest_complete",     "little_lost_girl" );
+    // Main quest completion notifies, one per map. Only the current map's ever
+    // fires; the rest sit idle until the game ends.
+    level thread sr_watch_ee( "transit_sidequest_achieved",  "tower_of_babble" );
+    level thread sr_watch_ee( "highrise_sidequest_achieved", "high_maintenance" );
+    level thread sr_watch_ee( "pop_goes_the_weasel_achieved", "pop_goes_the_weasel" );
+    level thread sr_watch_ee( "sq_maxis_complete",           "mined_games_maxis" );
+    level thread sr_watch_ee( "sq_richtofen_complete",       "mined_games_richtofen" );
+    level thread sr_watch_ee( "tomb_sidequest_complete",     "little_lost_girl" );
 }
 
 sr_wait_for_start()
 {
-	level endon( "end_game" );
+    level endon( "end_game" );
 
-	level waittill( "start_of_round" );
+    level waittill( "start_of_round" );
 
-	// A server that starts games above round 1 cannot be compared with one
-	// that does not, so leave the run untimed.
-	if ( !isDefined( level.round_number ) || level.round_number != 1 )
-		return;
+    // A server that starts games above round 1 cannot be compared with one
+    // that does not, so leave the run untimed.
+    if ( !isDefined( level.round_number ) || level.round_number != 1 )
+        return;
 
-	level.srStart = getTime();
-	level.srRoster = [];
-	level.srRosterLocked = false;
+    level.srStart = getTime();
+    level.srRoster = [];
+    level.srRosterLocked = false;
 }
 
 sr_watch_rounds()
 {
-	level endon( "end_game" );
+    level endon( "end_game" );
 
-	lastRound = -1;
-	sinceRoster = 0;
+    lastRound = -1;
 
-	for ( ;; )
-	{
-		wait 0.05;
+    for ( ;; )
+    {
+        wait 0.05;
 
-		if ( !isDefined( level.srStart ) || isDefined( level.srInvalid ) )
-			continue;
+        if ( !isDefined( level.srStart ) || isDefined( level.srInvalid ) )
+            continue;
 
-		// Once a second is plenty for the roster; the round is what needs
-		// watching closely. A round change scans immediately as well, so the
-		// round-2 lock happens on the exact tick.
-		sinceRoster++;
-		if ( sinceRoster >= 20 )
-		{
-			sinceRoster = 0;
-			sr_update_roster();
-		}
+        sr_update_roster();
 
-		if ( !isDefined( level.round_number ) || level.round_number == lastRound )
-			continue;
+        if ( !isDefined( level.round_number ) || level.round_number == lastRound )
+            continue;
 
-		lastRound = level.round_number;
-		sr_update_roster();
+        lastRound = level.round_number;
 
-		if ( lastRound >= 2 )
-			level.srRosterLocked = true;
+        if ( lastRound >= 2 )
+            level.srRosterLocked = true;
 
-		if ( sr_is_milestone( lastRound ) )
-			sr_log( "round", "" + lastRound );
-	}
+        if ( sr_is_milestone( lastRound ) )
+            sr_log( "round", "" + lastRound );
+    }
 }
 
 // Before round 2 anyone present joins the roster. After that a face that is
 // not on it ends timing for this game.
 sr_update_roster()
 {
-	players = get_players();
-	for ( i = 0; i < players.size; i++ )
-	{
-		// Still connecting: no name yet. The next pass picks them up, which
-		// is in time, because the roster does not lock until round 2.
-		if ( !isDefined( players[ i ] ) || !isDefined( players[ i ].name ) )
-			continue;
+    players = get_players();
+    for ( i = 0; i < players.size; i++ )
+    {
+        guid = "" + players[ i ] getGuid();
+        slot = sr_roster_index( guid );
 
-		guid = "" + players[ i ] getGuid();
-		slot = sr_roster_index( guid );
+        if ( slot < 0 )
+        {
+            if ( level.srRosterLocked )
+            {
+                level.srInvalid = true;
+                iPrintLn( "^3Speedrun timing ended - a new player joined after round 1" );
+                return;
+            }
+            slot = level.srRoster.size;
+            level.srRoster[ slot ] = spawnStruct();
+            level.srRoster[ slot ].guid = guid;
+        }
 
-		if ( slot < 0 )
-		{
-			if ( level.srRosterLocked )
-			{
-				level.srInvalid = true;
-				iPrintLn( "^3Speedrun timing ended - a new player joined after round 1" );
-				return;
-			}
-			slot = level.srRoster.size;
-			level.srRoster[ slot ] = spawnStruct();
-			level.srRoster[ slot ].guid = guid;
-		}
-
-		// Keep the latest name and the IW4MAdmin id, which arrives a few
-		// seconds after connecting, so a player who leaves is still credited.
-		level.srRoster[ slot ].name = sr_clean_name( players[ i ].name );
-		if ( isDefined( players[ i ].persistentClientId ) )
-			level.srRoster[ slot ].id = "" + players[ i ].persistentClientId;
-		else if ( !isDefined( level.srRoster[ slot ].id ) )
-			level.srRoster[ slot ].id = guid;
-	}
+        // Keep the latest name and the IW4MAdmin id, which arrives a few
+        // seconds after connecting, so a player who leaves is still credited.
+        level.srRoster[ slot ].name = sr_cached_name( players[ i ] );
+        if ( isDefined( players[ i ].persistentClientId ) )
+            level.srRoster[ slot ].id = "" + players[ i ].persistentClientId;
+        else if ( !isDefined( level.srRoster[ slot ].id ) )
+            level.srRoster[ slot ].id = guid;
+    }
 }
 
 sr_roster_index( guid )
 {
-	for ( i = 0; i < level.srRoster.size; i++ )
-	{
-		if ( level.srRoster[ i ].guid == guid )
-			return i;
-	}
-	return -1;
+    for ( i = 0; i < level.srRoster.size; i++ )
+    {
+        if ( level.srRoster[ i ].guid == guid )
+            return i;
+    }
+    return -1;
 }
 
 sr_watch_ee( notifyName, token )
 {
-	level endon( "end_game" );
+    level endon( "end_game" );
 
-	level waittill( notifyName );
+    level waittill( notifyName );
 
-	if ( isDefined( level.srStart ) && !isDefined( level.srInvalid ) )
-		sr_log( "ee", token );
-}
-
-// Mob of the Dead has no completion notify that fits. The one its achievement
-// uses fires when the bridge showdown starts, not when it ends, and only in the
-// co-op branch - solo, or a bridge with nobody to fight, skips it entirely.
-// Both endings set level.winner once they are decided, so wait for the final
-// stage and then for that.
-sr_watch_motd_ending()
-{
-	level endon( "end_game" );
-
-	if ( level.script != "zm_prison" )
-		return;
-
-	level waittill( "stage_final" );
-
-	while ( !isDefined( level.winner ) )
-		wait 0.05;
-
-	if ( isDefined( level.srStart ) && !isDefined( level.srInvalid ) )
-		sr_log( "ee", "pop_goes_the_weasel" );
+    if ( isDefined( level.srStart ) && !isDefined( level.srInvalid ) )
+        sr_log( "ee", token );
 }
 
 sr_is_milestone( rnd )
 {
-	for ( i = 0; i < level.srMilestones.size; i++ )
-	{
-		if ( level.srMilestones[ i ] == rnd )
-			return true;
-	}
-	return false;
+    for ( i = 0; i < level.srMilestones.size; i++ )
+    {
+        if ( level.srMilestones[ i ] == rnd )
+            return true;
+    }
+    return false;
 }
 
 sr_log( kind, target )
 {
-	elapsed = getTime() - level.srStart;
-	sr_update_roster();
-	if ( isDefined( level.srInvalid ) || level.srRoster.size == 0 )
-		return;
+    elapsed = getTime() - level.srStart;
+    sr_update_roster();
+    if ( isDefined( level.srInvalid ) || level.srRoster.size == 0 )
+        return;
 
-	line = level.srRunId + "|" + level.srMapToken + "|" + kind + "|" + target + "|"
-	     + elapsed + "|" + level.srRoster.size + "|" + sr_player_blocks() + "|"
-	     + getDvar( "net_port" );
+    line = level.srRunId + "|" + level.srMapToken + "|" + kind + "|" + target + "|"
+         + elapsed + "|" + level.srRoster.size + "|" + sr_player_blocks() + "|"
+         + getDvar( "net_port" );
 
-	sr_append( line );
+    sr_append( line );
 
-	if ( kind == "round" )
-		iPrintLn( "^7Round " + target + " in ^2" + sr_format_time( elapsed ) );
-	else
-		iPrintLn( "^7Easter egg done in ^2" + sr_format_time( elapsed ) );
+    if ( kind == "round" )
+        iPrintLn( "^7Round " + target + " in ^2" + sr_format_time( elapsed ) );
+    else
+        iPrintLn( "^7Easter egg done in ^2" + sr_format_time( elapsed ) );
 }
 
 sr_player_blocks()
 {
-	blocks = "";
-	for ( i = 0; i < level.srRoster.size; i++ )
-	{
-		block = level.srRoster[ i ].id + ":" + level.srRoster[ i ].name;
+    blocks = "";
+    for ( i = 0; i < level.srRoster.size; i++ )
+    {
+        block = level.srRoster[ i ].id + ":" + level.srRoster[ i ].name;
 
-		if ( blocks == "" )
-			blocks = block;
-		else
-			blocks = blocks + "," + block;
-	}
-	return blocks;
+        if ( blocks == "" )
+            blocks = block;
+        else
+            blocks = blocks + "," + block;
+    }
+    return blocks;
 }
 
 // Strip the characters the line format uses so a name can never break parsing.
+// The character loop is the expensive part, so run it only when a player's
+// name actually changes rather than on every scan.
+sr_cached_name( player )
+{
+    raw = player.name;
+    if ( !isDefined( raw ) )
+        return "Player";
+
+    if ( isDefined( player.srNameRaw ) && player.srNameRaw == raw && isDefined( player.srNameClean ) )
+        return player.srNameClean;
+
+    player.srNameRaw = raw;
+    player.srNameClean = sr_clean_name( raw );
+    return player.srNameClean;
+}
+
 sr_clean_name( name )
 {
-	if ( !isDefined( name ) )
-		return "Player";
+    if ( !isDefined( name ) )
+        return "Player";
 
-	// The count is bounded as well as tested. If name is ever not a string,
-	// name.size is undefined and an unbounded loop here is killed by the
-	// engine - taking the calling thread, and the whole run, with it.
-	out = "";
-	for ( i = 0; i < 64 && i < name.size; i++ )
-	{
-		c = name[ i ];
-		if ( !isDefined( c ) )
-			break;
-		if ( c != "|" && c != ":" && c != "," && c != ";" )
-			out += c;
-	}
-	if ( out == "" )
-		return "Player";
-	return out;
+    out = "";
+    for ( i = 0; i < name.size; i++ )
+    {
+        c = name[ i ];
+        if ( c != "|" && c != ":" && c != "," && c != ";" )
+            out += c;
+    }
+    if ( out == "" )
+        return "Player";
+    return out;
 }
 
 sr_format_time( ms )
 {
-	total = int( ms / 1000 );
-	h = int( total / 3600 );
-	m = int( ( total % 3600 ) / 60 );
-	s = total % 60;
+    total = int( ms / 1000 );
+    h = int( total / 3600 );
+    m = int( ( total % 3600 ) / 60 );
+    s = total % 60;
 
-	text = "";
-	if ( h > 0 )
-		text = h + ":" + sr_pad( m ) + ":" + sr_pad( s );
-	else
-		text = m + ":" + sr_pad( s );
-	return text;
+    text = "";
+    if ( h > 0 )
+        text = h + ":" + sr_pad( m ) + ":" + sr_pad( s );
+    else
+        text = m + ":" + sr_pad( s );
+    return text;
 }
 
 sr_pad( n )
 {
-	if ( n < 10 )
-		return "0" + n;
-	return "" + n;
+    if ( n < 10 )
+        return "0" + n;
+    return "" + n;
 }
 
 // Writing a marker line the first time the file is created proves the append
@@ -290,83 +264,83 @@ sr_pad( n )
 // ignores "boot" lines.
 sr_write_boot_line_if_new()
 {
-	file = fopen( level.srFile, "r" );
-	if ( isDefined( file ) && file != 0 )
-	{
-		fclose( file );
-		return;
-	}
-	sr_append( level.srRunId + "|" + level.srMapToken + "|boot|0|0|0||" + getDvar( "net_port" ) );
+    file = fopen( level.srFile, "r" );
+    if ( isDefined( file ) && file != 0 )
+    {
+        fclose( file );
+        return;
+    }
+    sr_append( level.srRunId + "|" + level.srMapToken + "|boot|0|0|0||" + getDvar( "net_port" ) );
 }
 
 sr_append( line )
 {
-	file = fopen( level.srFile, "a" );
-	if ( isDefined( file ) && file != 0 )
-	{
-		fwrite( file, line + "\n" );
-		fclose( file );
-	}
+    file = fopen( level.srFile, "a" );
+    if ( isDefined( file ) && file != 0 )
+    {
+        fwrite( file, line + "\n" );
+        fclose( file );
+    }
 }
 
 // Same naming as T6RoundSaverNew.gsc, so <token>HighRound.txt is the board
 // this run belongs to.
 sr_map_token()
 {
-	gamemode = getDvar( "ui_gametype" );
-	map = sr_map_name( level.script );
-	if ( level.script == "zm_transit" && gamemode == "zsurvival" )
-		map = sr_start_location_name( getDvar( "ui_zm_mapstartlocation" ) );
-	return map + sr_gamemode_name( gamemode );
+    gamemode = getDvar( "ui_gametype" );
+    map = sr_map_name( level.script );
+    if ( level.script == "zm_transit" && gamemode == "zsurvival" )
+        map = sr_start_location_name( getDvar( "ui_zm_mapstartlocation" ) );
+    return map + sr_gamemode_name( gamemode );
 }
 
 sr_start_location_name( location )
 {
-	if ( location == "cornfield" )
-		return "Cornfield";
-	else if ( location == "diner" )
-		return "Diner";
-	else if ( location == "farm" )
-		return "Farm";
-	else if ( location == "power" )
-		return "Power";
-	else if ( location == "town" )
-		return "Town";
-	else if ( location == "transit" )
-		return "BusDepot";
-	else if ( location == "tunnel" )
-		return "Tunnel";
-	return "Tranzit";
+    if ( location == "cornfield" )
+        return "Cornfield";
+    else if ( location == "diner" )
+        return "Diner";
+    else if ( location == "farm" )
+        return "Farm";
+    else if ( location == "power" )
+        return "Power";
+    else if ( location == "town" )
+        return "Town";
+    else if ( location == "transit" )
+        return "BusDepot";
+    else if ( location == "tunnel" )
+        return "Tunnel";
+    return "Tranzit";
 }
 
 sr_map_name( map )
 {
-	if ( map == "zm_buried" )
-		return "Buried";
-	else if ( map == "zm_highrise" )
-		return "DieRise";
-	else if ( map == "zm_prison" )
-		return "Motd";
-	else if ( map == "zm_nuked" )
-		return "Nuketown";
-	else if ( map == "zm_tomb" )
-		return "Origins";
-	else if ( map == "zm_transit" )
-		return "Tranzit";
-	return "NA";
+    if ( map == "zm_buried" )
+        return "Buried";
+    else if ( map == "zm_highrise" )
+        return "DieRise";
+    else if ( map == "zm_prison" )
+        return "Motd";
+    else if ( map == "zm_nuked" )
+        return "Nuketown";
+    else if ( map == "zm_tomb" )
+        return "Origins";
+    else if ( map == "zm_transit" )
+        return "Tranzit";
+    return "NA";
 }
 
 sr_gamemode_name( gamemode )
 {
-	if ( gamemode == "zstandard" )
-		return "Standard";
-	else if ( gamemode == "zclassic" )
-		return "Classic";
-	else if ( gamemode == "zsurvival" )
-		return "Survival";
-	else if ( gamemode == "zgrief" )
-		return "Grief";
-	else if ( gamemode == "zcleansed" )
-		return "Turned";
-	return "NA";
+    if ( gamemode == "zstandard" )
+        return "Standard";
+    else if ( gamemode == "zclassic" )
+        return "Classic";
+    else if ( gamemode == "zsurvival" )
+        return "Survival";
+    else if ( gamemode == "zgrief" )
+        return "Grief";
+    else if ( gamemode == "zcleansed" )
+        return "Turned";
+    return "NA";
 }
