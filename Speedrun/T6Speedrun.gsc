@@ -5,7 +5,8 @@
  * Speedrun logger (T6 / Black Ops 2 Zombies).
  *
  * Appends one line to logs/Speedrun.txt (beside the HighRound files) each time
- * a game reaches a milestone round or finishes the map's main easter egg, with
+ * a game reaches a milestone round or finishes an easter egg (main quest, song
+ * or side egg), with
  * the game time it took. The website turns those lines into "fastest to round
  * N" and "fastest easter egg" boards per map and player count.
  *
@@ -60,6 +61,12 @@ init()
     level thread sr_watch_ee( "sq_maxis_complete",           "mined_games_maxis" );
     level thread sr_watch_ee( "sq_richtofen_complete",       "mined_games_richtofen" );
     level thread sr_watch_ee( "tomb_sidequest_complete",     "little_lost_girl" );
+
+    // Song easter eggs, timed to the moment each song unlocks.
+    level thread sr_watch_songs();
+
+    // Side easter eggs, timed to the moment the game marks each one done.
+    level thread sr_watch_side_eggs();
 }
 
 sr_wait_for_start()
@@ -147,6 +154,242 @@ sr_roster_index( guid )
             return i;
     }
     return -1;
+}
+
+sr_watch_songs()
+{
+    level endon( "end_game" );
+
+    // music_override one frame ago - some eggs only play if no other music is
+    // on, and their own handler sets it in the frame of the trigger.
+    level.srPrevOverride = false;
+    level thread sr_track_music_override();
+
+    if ( level.script == "zm_transit" && getDvar( "ui_gametype" ) == "zclassic" )
+        level thread sr_watch_meteor_song( "song_carrion" );
+    else if ( level.script == "zm_highrise" )
+        level thread sr_watch_meteor_song( "song_we_all_fall_down" );
+    else if ( level.script == "zm_buried" )
+        level thread sr_watch_meteor_song( "song_always_running" );
+    else if ( level.script == "zm_prison" )
+    {
+        level thread sr_watch_meteor_song( "song_rusty_cage" );
+        level thread sr_watch_nixie_song();
+    }
+    else if ( level.script == "zm_tomb" )
+    {
+        level thread sr_watch_meteor_song( "song_archangel" );
+        level thread sr_watch_ee( "sndEnd115", "song_aether" );
+        level thread sr_watch_radio_song();
+    }
+    else if ( level.script == "zm_nuked" )
+    {
+        level thread sr_watch_meteor_song( "song_nuked_teddy_bears" );
+        level thread sr_watch_nuked_population_song();
+        level thread sr_watch_nuked_mannequin_song();
+    }
+}
+
+sr_track_music_override()
+{
+    level endon( "end_game" );
+
+    for ( ;; )
+    {
+        level.srPrevOverride = isDefined( level.music_override ) && level.music_override;
+        wait 0.05;
+    }
+}
+
+sr_song_done( token )
+{
+    if ( isDefined( level.srStart ) && !isDefined( level.srInvalid ) )
+        sr_log( "ee", token );
+}
+
+// The usual song egg: three meteors / bottles / teddy bears / fragments.
+sr_watch_meteor_song( token )
+{
+    level endon( "end_game" );
+
+    while ( !( isDefined( level.meteor_counter ) && level.meteor_counter >= 3 ) )
+        wait 0.5;
+    sr_song_done( token );
+}
+
+// Origins: the three radios (Shepherd of Fire).
+sr_watch_radio_song()
+{
+    level endon( "end_game" );
+
+    while ( !( isDefined( level.found_ee_radio_count ) && level.found_ee_radio_count >= 3 ) )
+        wait 0.5;
+    sr_song_done( "song_shepherd_of_fire" );
+}
+
+// Mob of the Dead: 935 on the nixie tubes plays the second song - but only if
+// no other music is on at that moment. The notify repeats while 935 shows.
+sr_watch_nixie_song()
+{
+    level endon( "end_game" );
+
+    for ( ;; )
+    {
+        level waittill( "nixie_935" );
+        if ( level.srPrevOverride )
+            continue;
+        wait 0.5;
+        if ( isDefined( level.music_override ) && level.music_override )
+            break;
+    }
+    sr_song_done( "song_where_are_we_going" );
+}
+
+// Nuketown: move the clock, then grab the door power-up with population 15.
+sr_watch_nuked_population_song()
+{
+    level endon( "end_game" );
+
+    level waittill( "nuke_clock_moved" );
+    level waittill( "magic_door_power_up_grabbed" );
+    if ( isDefined( level.population_count ) && level.population_count == 15 && !level.srPrevOverride )
+        sr_song_done( "song_nuked_population" );
+}
+
+// Nuketown: every mannequin destroyed.
+sr_watch_nuked_mannequin_song()
+{
+    level endon( "end_game" );
+
+    while ( !( isDefined( level.mannequin_count ) && level.mannequin_count > 0 ) )
+        wait 1;
+    while ( level.mannequin_count > 0 )
+        wait 0.5;
+    sr_song_done( "song_nuked_mannequins" );
+}
+
+// Each watches state the stock map script sets when the egg is done (see the
+// file each comment names), polled because most have no notify of their own.
+// Several are per player; the squad's time is when the first of them gets it.
+sr_watch_side_eggs()
+{
+    if ( level.script == "zm_prison" )
+    {
+        // zm_prison_spoon.gsc gives the spork once the spoon is charged.
+        level thread sr_watch_player_weapon( "spork_zm_alcatraz", "golden_spork" );
+        // _zm_weap_tomahawk.gsc gives the tomahawk when it is picked up from
+        // the hellhole after the three dogs are fed.
+        level thread sr_watch_player_weapon( "bouncing_tomahawk_zm", "hells_retriever", "upgraded_tomahawk_zm" );
+    }
+    else if ( level.script == "zm_tomb" )
+    {
+        level thread sr_watch_golden_shovel();
+        level thread sr_watch_drone_medallions();
+        level thread sr_watch_soul_boxes();
+    }
+    else if ( level.script == "zm_buried" )
+    {
+        level thread sr_watch_fountain();
+        level thread sr_watch_ghost_piano();
+    }
+}
+
+sr_flag_on( name )
+{
+    return isDefined( level.flag ) && isDefined( level.flag[ name ] ) && level.flag[ name ];
+}
+
+sr_watch_player_weapon( weapon, token, upgraded )
+{
+    level endon( "end_game" );
+
+    for ( ;; )
+    {
+        wait 0.5;
+        players = get_players();
+        for ( i = 0; i < players.size; i++ )
+        {
+            if ( players[ i ] hasWeapon( weapon ) || ( isDefined( upgraded ) && players[ i ] hasWeapon( upgraded ) ) )
+            {
+                sr_song_done( token );
+                return;
+            }
+        }
+    }
+}
+
+// Origins: 30 dig spots with the shovel (zm_tomb_dig.gsc).
+sr_watch_golden_shovel()
+{
+    level endon( "end_game" );
+
+    for ( ;; )
+    {
+        wait 0.5;
+        players = get_players();
+        for ( i = 0; i < players.size; i++ )
+        {
+            if ( isDefined( players[ i ].dig_vars ) && isDefined( players[ i ].dig_vars[ "has_upgraded_shovel" ] )
+                && players[ i ].dig_vars[ "has_upgraded_shovel" ] )
+            {
+                sr_song_done( "golden_shovel" );
+                return;
+            }
+        }
+    }
+}
+
+// Origins: the Maxis Drone brings back all four medallions (_zm_ai_quadrotor.gsc
+// counts them down). The flag is only set once the drone then reaches the MG08,
+// so it is the fallback, not the trigger.
+sr_watch_drone_medallions()
+{
+    level endon( "end_game" );
+
+    while ( !( ( isDefined( level.n_ee_medallions ) && level.n_ee_medallions <= 0 ) || sr_flag_on( "ee_medallions_collected" ) ) )
+        wait 0.5;
+    sr_song_done( "drone_medallions" );
+}
+
+// Origins: all four soul boxes filled (zm_tomb_challenges.gsc).
+sr_watch_soul_boxes()
+{
+    level endon( "end_game" );
+
+    while ( !( isDefined( level.n_soul_boxes_completed ) && level.n_soul_boxes_completed >= 4 ) )
+        wait 0.5;
+    sr_song_done( "soul_boxes" );
+}
+
+// Buried: both fountains broken opens the fountain teleporter (zm_buried_fountain.gsc).
+sr_watch_fountain()
+{
+    level endon( "end_game" );
+
+    while ( !sr_flag_on( "fountain_transport_active" ) )
+        wait 0.5;
+    sr_song_done( "fountain_teleporter" );
+}
+
+// Buried: the ghost piano's free perk (zm_buried_ee.gsc). The field, not the
+// notify - the ghost round's own free perk sends the same notify.
+sr_watch_ghost_piano()
+{
+    level endon( "end_game" );
+
+    for ( ;; )
+    {
+        wait 0.5;
+        players = get_players();
+        for ( i = 0; i < players.size; i++ )
+        {
+            if ( isDefined( players[ i ].got_easter_egg_reward ) && players[ i ].got_easter_egg_reward )
+            {
+                sr_song_done( "ghost_piano" );
+                return;
+            }
+        }
+    }
 }
 
 sr_watch_ee( notifyName, token )
