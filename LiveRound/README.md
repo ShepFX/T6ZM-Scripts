@@ -7,7 +7,7 @@ Two outputs, both updated on a round change and refreshed once a minute so a
 stale file left by a crashed server is distinguishable from a live game:
 
 - **A file** (`currentround.txt` on T5, `CurrentRound.txt` on T6) read by
-  stats.cukservers.net: `<round>|<players>|<port>|<hostname>|<map>`
+  stats.shep.rip: `<round>|<players>|<port>|<hostname>|<map>`
 - **A dvar** `cuk_round`, read by IW4MAdmin over rcon on its normal status
   poll, which is what puts "Round N" on the webfront server cards.
 

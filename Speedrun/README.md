@@ -1,7 +1,7 @@
 # Speedrun logger for T6 Zombies
 
 Logs how long a game took to reach milestone rounds (10, 20, 30, 40, 50, 70,
-100) and to complete the map's main easter egg, so stats.cukservers.net can
+100) and to complete the map's main easter egg, so stats.shep.rip can
 show "fastest to round N" and "fastest easter egg" boards per map and squad
 size.
 

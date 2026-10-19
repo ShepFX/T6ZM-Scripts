@@ -1,6 +1,6 @@
-# CUKServers Black Ops 2 (T6) zombie scripts
+# Shep Black Ops 2 (T6) zombie scripts
 
-The GSC the CUKServers Black Ops 2 (T6) servers actually run. Every file here was taken
+The GSC the Shep Black Ops 2 (T6) servers actually run. Every file here was taken
 from a live server, so what is in this repo is what is running.
 
 Scripts install into `runtime/plutonium/storage/t6/scripts/zm/` unless a folder's README says
@@ -19,7 +19,7 @@ deployed name is the one that matters — that is the filename to copy to.
 | `First-Room-Challenge/FirstRoomChallenge.gsc` | `T6FirstRoomChallenge.gsc` | t6zm-first |
 | `GameStats/T6GameStats.gsc` | `T6GameStats.gsc` | 11 zombie servers |
 | `LiveRound/T6LiveRound.gsc` | `T6LiveRound.gsc` | 11 zombie servers |
-| `RoundSaver/CUKRoundSaver.gsc` | `T6RoundSaverNew.gsc` | 11 zombie servers |
+| `RoundSaver/T6RoundSaverNew.gsc` | `T6RoundSaverNew.gsc` | 11 zombie servers |
 | `Speedrun/T6Speedrun.gsc` | `T6Speedrun.gsc` | 11 zombie servers |
 | `T6PostRoundLockExploit/T6PostRoundLockExploit.gsc` | `T6PostRoundLockVote.gsc` | 11 zombie servers |
 | `Zombie-Counter/CounterHUD.gsc` | `CounterHUD.gsc` | 11 zombie servers |
