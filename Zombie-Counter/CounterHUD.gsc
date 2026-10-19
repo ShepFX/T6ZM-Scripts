@@ -518,6 +518,7 @@ t6rt_init_state()
     // hides itself again.
     level.t6rt_split_round = 0;
     level.t6rt_split_time = "";
+    level.t6rt_split_ms = 0;
     level.t6rt_split_generation = 0;
     level.t6rt_split_seconds = 6;
 }
@@ -558,8 +559,12 @@ t6rt_start_round( round )
     if ( level.t6rt_round_active && level.t6rt_current_round == round && level.t6rt_round_start_ms == start_ms )
         return;
 
-    // First round of the game starts the run clock.
-    if ( level.t6rt_total_start_ms <= 0 && round > 0 )
+    // First round of the game starts the run clock - once someone is actually
+    // playing. A map can sit at round 1 for hours with nobody on (Stairway
+    // starts its rounds without waiting for players), and a clock started then
+    // showed 0:00:00 instead of counting. t6rt_round_poll_monitor() starts it
+    // the moment a player is in, if they arrive after the round began.
+    if ( level.t6rt_total_start_ms <= 0 && round > 0 && t6rt_anyone_playing() )
     {
         level.t6rt_total_start_ms = start_ms;
         level.t6rt_total_generation++;
@@ -594,6 +599,7 @@ t6rt_store_split( elapsed_ms )
 
     level.t6rt_split_round = level.t6rt_current_round;
     level.t6rt_split_time = t6rt_format_time( elapsed_ms );
+    level.t6rt_split_ms = elapsed_ms;
     level.t6rt_split_generation++;
 
     level notify( "t6rt_refresh" );
@@ -622,6 +628,14 @@ t6rt_round_poll_monitor()
 
         if ( !isdefined( level.round_number ) )
             continue;
+
+        if ( level.t6rt_total_start_ms <= 0 && level.round_number > 0 && t6rt_anyone_playing() )
+        {
+            level.t6rt_total_start_ms = gettime();
+            level.t6rt_total_generation++;
+            level.t6rt_generation++;
+            level notify( "t6rt_refresh" );
+        }
 
         if ( level.t6rt_round_active && level.round_number != level.t6rt_current_round )
         {
@@ -701,13 +715,38 @@ t6rt_build_hud()
     player.t6rt_split_accent = t6rt_bar( player, px + w, py + 30, 4, 14, ar, ag, ab, 0.90, 6 );
     player.t6rt_split_accent.alpha = 0;
 
-    player.t6rt_split_label = t6rt_text_left( player, px + 5, player.t6rt_split_y, "small", 1.0, ar, ag, ab, 7 );
-    player.t6rt_split_label settext( "R0" );
-    player.t6rt_split_label.alpha = 0;
+    // Every distinct settext() string takes a configstring slot for the rest of
+    // the map, so the split row is fixed labels plus setvalue() numbers: "R" +
+    // round, then m:ss with the seconds as two single digits (keeps 1:05's 0).
+    // Two new strings a round would overflow the table in a long game and
+    // disconnect everyone (G_FindConfigstringIndex: overflow).
+    sy = player.t6rt_split_y;
+    tx = player.t6rt_time_x;
+    player.t6rt_split_label = t6rt_text_left( player, px + 5, sy, "small", 1.0, ar, ag, ab, 7 );
+    player.t6rt_split_label settext( "R" );
+    player.t6rt_split_round = t6rt_text_left( player, px + 10, sy, "small", 1.0, ar, ag, ab, 7 );
+    player.t6rt_split_round setvalue( 0 );
+    // The seconds are one number (so the digits sit together), with a
+    // separate "0" in front of it under 10 seconds.
+    player.t6rt_split_secs  = t6rt_text_right( player, tx,      sy, "small", 1.0, 0.90, 0.94, 1.00, 7 );
+    player.t6rt_split_pad   = t6rt_text_right( player, tx - 5,  sy, "small", 1.0, 0.90, 0.94, 1.00, 7 );
+    player.t6rt_split_pad settext( "0" );
+    player.t6rt_split_colon = t6rt_text_right( player, tx - 10, sy, "small", 1.0, 0.90, 0.94, 1.00, 7 );
+    player.t6rt_split_colon settext( ":" );
+    player.t6rt_split_mins  = t6rt_text_right( player, tx - 13, sy, "small", 1.0, 0.90, 0.94, 1.00, 7 );
+    player.t6rt_split_secs setvalue( 0 );
+    player.t6rt_split_mins setvalue( 0 );
+    player.t6rt_split_padded = true;
 
-    player.t6rt_split_time = t6rt_text_right( player, player.t6rt_time_x, player.t6rt_split_y, "small", 1.0, 0.90, 0.94, 1.00, 7 );
-    player.t6rt_split_time settext( "--:--" );
-    player.t6rt_split_time.alpha = 0;
+    player.t6rt_split_elems = [];
+    player.t6rt_split_elems[0] = player.t6rt_split_label;
+    player.t6rt_split_elems[1] = player.t6rt_split_round;
+    player.t6rt_split_elems[2] = player.t6rt_split_secs;
+    player.t6rt_split_elems[3] = player.t6rt_split_pad;
+    player.t6rt_split_elems[4] = player.t6rt_split_colon;
+    player.t6rt_split_elems[5] = player.t6rt_split_mins;
+    for ( i = 0; i < player.t6rt_split_elems.size; i++ )
+        player.t6rt_split_elems[i].alpha = 0;
 
     player.t6rt_split_showing = false;
     player.t6rt_seen_split_generation = level.t6rt_split_generation;
@@ -735,8 +774,11 @@ t6rt_split_loop()
             continue;
 
         self.t6rt_seen_split_generation = level.t6rt_split_generation;
-        self.t6rt_split_label settext( "R" + level.t6rt_split_round );
-        self.t6rt_split_time settext( level.t6rt_split_time );
+        seconds = int( level.t6rt_split_ms / 1000 );
+        self.t6rt_split_round setvalue( level.t6rt_split_round );
+        self.t6rt_split_mins setvalue( int( seconds / 60 ) );
+        self.t6rt_split_secs setvalue( seconds % 60 );
+        self.t6rt_split_padded = ( seconds % 60 ) < 10;
 
         if ( !self.t6rt_enabled )
             continue;
@@ -782,10 +824,15 @@ t6rt_split_set_visible( visible, fade_time )
     self.t6rt_split_bg.alpha = bg_alpha;
     self.t6rt_split_accent fadeovertime( fade_time );
     self.t6rt_split_accent.alpha = accent_alpha;
-    self.t6rt_split_label fadeovertime( fade_time );
-    self.t6rt_split_label.alpha = text_alpha;
-    self.t6rt_split_time fadeovertime( fade_time );
-    self.t6rt_split_time.alpha = text_alpha;
+    for ( i = 0; i < self.t6rt_split_elems.size; i++ )
+    {
+        self.t6rt_split_elems[i] fadeovertime( fade_time );
+        self.t6rt_split_elems[i].alpha = text_alpha;
+    }
+
+    // The "0" pad only shows in front of single-digit seconds.
+    if ( !self.t6rt_split_padded )
+        self.t6rt_split_pad.alpha = 0;
 }
 
 t6rt_refresh_loop()
@@ -890,8 +937,8 @@ t6rt_move( py )
     {
         self.t6rt_split_bg.y = py + 30;
         self.t6rt_split_accent.y = py + 30;
-        self.t6rt_split_label.y = self.t6rt_split_y;
-        self.t6rt_split_time.y = self.t6rt_split_y;
+        for ( i = 0; i < self.t6rt_split_elems.size; i++ )
+            self.t6rt_split_elems[i].y = self.t6rt_split_y;
     }
 }
 
@@ -968,6 +1015,17 @@ t6rt_format_time( elapsed_ms )
         second_text = "0" + seconds;
 
     return minutes + ":" + second_text;
+}
+
+t6rt_anyone_playing()
+{
+    players = get_players();
+    for ( i = 0; i < players.size; i++ )
+    {
+        if ( isdefined( players[i].sessionstate ) && players[i].sessionstate == "playing" )
+            return true;
+    }
+    return false;
 }
 
 t6rt_total_elapsed_seconds()

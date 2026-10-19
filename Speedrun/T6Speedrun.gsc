@@ -30,7 +30,9 @@
  * before a milestone. A new player joining from round 2 onward ends timing for
  * that game - otherwise a solo run could land on the 2P board, or a three-man
  * carry to round 28 could be logged as a 1P time. A roster member who drops
- * and rejoins is still on the roster.
+ * and rejoins is still on the roster. Anyone who left during round 1 is
+ * dropped when round 2 begins, so a player who quits early and is replaced
+ * does not turn a 4-man game into a 5P run.
  */
 
 init()
@@ -105,8 +107,11 @@ sr_watch_rounds()
 
         lastRound = level.round_number;
 
-        if ( lastRound >= 2 )
+        if ( lastRound >= 2 && !level.srRosterLocked )
+        {
+            sr_prune_roster();
             level.srRosterLocked = true;
+        }
 
         if ( sr_is_milestone( lastRound ) )
             sr_log( "round", "" + lastRound );
@@ -144,6 +149,25 @@ sr_update_roster()
         else if ( !isDefined( level.srRoster[ slot ].id ) )
             level.srRoster[ slot ].id = guid;
     }
+}
+
+// Round 2 has begun: keep only the roster members still in the game.
+sr_prune_roster()
+{
+    players = get_players();
+    kept = [];
+    for ( r = 0; r < level.srRoster.size; r++ )
+    {
+        for ( i = 0; i < players.size; i++ )
+        {
+            if ( "" + players[ i ] getGuid() == level.srRoster[ r ].guid )
+            {
+                kept[ kept.size ] = level.srRoster[ r ];
+                break;
+            }
+        }
+    }
+    level.srRoster = kept;
 }
 
 sr_roster_index( guid )

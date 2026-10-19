@@ -15,13 +15,19 @@ deployed name is the one that matters — that is the filename to copy to.
 | --- | --- | --- |
 | `Achievements/T6Achievements.gsc` | `T6Achievements.gsc` | 4 MP servers, in `scripts/mp/` |
 | `AFK/_zm_AFK.gsc` | `_zm_afk.gsc` | 11 zombie servers |
-| `AntiExploit/_zm_anti_exploit_t6.gsc` | `_zm_anti_exploit_clean.gsc` | 12 zombie servers |
+| `AntiExploit/_zm_anti_exploit_t6.gsc` | `_zm_anti_exploit_clean.gsc` | 11 zombie servers |
 | `First-Room-Challenge/FirstRoomChallenge.gsc` | `T6FirstRoomChallenge.gsc` | t6zm-first |
 | `GameStats/T6GameStats.gsc` | `T6GameStats.gsc` | 11 zombie servers |
-| `LiveRound/T6LiveRound.gsc` | `T6LiveRound.gsc` | 12 zombie servers |
-| `RoundSaver/CUKRoundSaver.gsc` | `T6RoundSaverNew.gsc` | 12 zombie servers |
-| `Speedrun/T6Speedrun.gsc` | `T6Speedrun.gsc` | 12 zombie servers |
-| `T6PostRoundLockExploit/T6PostRoundLockExploit.gsc` | `T6PostRoundLockVote.gsc` | 12 zombie servers |
-| `Zombie-Counter/CounterHUD.gsc` | `CounterHUD.gsc` | 12 zombie servers |
+| `LiveRound/T6LiveRound.gsc` | `T6LiveRound.gsc` | 11 zombie servers |
+| `RoundSaver/CUKRoundSaver.gsc` | `T6RoundSaverNew.gsc` | 11 zombie servers |
+| `Speedrun/T6Speedrun.gsc` | `T6Speedrun.gsc` | 11 zombie servers |
+| `T6PostRoundLockExploit/T6PostRoundLockExploit.gsc` | `T6PostRoundLockVote.gsc` | 11 zombie servers |
+| `Zombie-Counter/CounterHUD.gsc` | `CounterHUD.gsc` | 11 zombie servers |
+| `Backspeed/T6Backspeed.gsc` | `T6Backspeed.gsc` | 11 zombie servers |
+| `First-Room-Challenge/zm_buried/T6BuriedMaze.gsc` | `zm_buried/T6BuriedMaze.gsc` | t6zm-first |
+| `MapVote/T6MapVote.gsc` | `T6MapVote.gsc` | t6zm-first |
+| `PrivateRoundLock/T6PrivateRoundLock.gsc` | `T6PrivateRoundLock.gsc` | private servers |
+| `RestartVote/T6RestartVote.gsc` | `T6RestartVote.gsc` | 11 zombie servers |
+| `StuckZombies/T6StuckZombies.gsc` | `T6StuckZombies.gsc` | 11 zombie servers |
 
-Last verified against the live servers on 2026-09-25.
+Last verified against the live servers on 2026-10-19.

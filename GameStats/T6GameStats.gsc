@@ -11,7 +11,8 @@
  *
  * File format - one line per player session:
  *     <runId>|<mapToken>|<round>|<reason>|<port>|<id>|<name>|<kills>|<headshots>|
- *     <downs>|<revives>|<bleedouts>|<points>|<joinRound>|<ms>
+ *     <downs>|<revives>|<bleedouts>|<points>|<joinRound>|<ms>|<box>|<perks>|<pap>|
+ *     <powerups>|<powerupTypes>
  *
  *     runId      random id for this game (same idea as the speedrun log)
  *     mapToken   same as the speedrun log (TranzitStandard, MotdClassic ...)
@@ -22,6 +23,12 @@
  *     points     total points earned this game, not what they had left
  *     joinRound  the round they joined in
  *     ms         time in the game
+ *     box        mystery box spins they paid for (the game's own use_magicbox count,
+ *                or what gs_watch_machines saw where that stays 0 - Mob of the Dead)
+ *     perks      perks they bought from a machine - free ones are not counted
+ *     pap        Pack-a-Punch uses (the game's own use_pap count, same fallback)
+ *     powerups   power-ups they picked up
+ *     powerupTypes  the same by type, "nuke=2/full_ammo=1", empty when none
  *
  * A session with no kills that lasted under 30 seconds is not written, so
  * someone connecting and leaving straight away adds nothing.
@@ -40,6 +47,8 @@ init()
 
 	level thread gs_watch_players();
 	level thread gs_watch_end();
+	level thread gs_watch_drops();
+	level thread gs_watch_machines();
 }
 
 // New player entities get their own tracking thread.
@@ -64,12 +73,20 @@ gs_track_player()
 	session.joinRound = gs_round();
 	session.joinTime = getTime();
 	session.bleedouts = 0;
+	session.box = 0;
+	session.perks = 0;
+	session.pap = 0;
+	session.boxSeen = 0;
+	session.papSeen = 0;
+	session.powerups = 0;
+	session.powerupTypes = [];
 	session.written = false;
 	self.gsSession = session;
 	level.gsSessions[ level.gsSessions.size ] = session;
 
 	self thread gs_watch_bleedouts( session );
 	self thread gs_watch_leave( session );
+	self thread gs_watch_perks( session );
 
 	// Keep a copy of the numbers, so a player who drops is still logged with
 	// what they had - their entity is gone by the time "disconnect" arrives.
@@ -99,6 +116,88 @@ gs_watch_bleedouts( session )
 
 		last = state;
 		wait 0.25;
+	}
+}
+
+// "perk_bought" is sent to the buyer only for a machine purchase (Wunderfizz
+// included), so free perks from power-ups, Tombstone and Who's Who don't count.
+gs_watch_perks( session )
+{
+	self endon( "disconnect" );
+	for ( ;; )
+	{
+		self waittill( "perk_bought", perk );
+		session.perks++;
+	}
+}
+
+// Every power-up the game drops is watched until someone grabs it or it goes.
+// The game names the grabber 0.1s before hiding it, so a 0.05s check sees it.
+gs_watch_drops()
+{
+	for ( ;; )
+	{
+		level waittill( "powerup_dropped", powerup );
+		if ( isDefined( powerup ) )
+			powerup thread gs_watch_drop();
+	}
+}
+
+gs_watch_drop()
+{
+	while ( isDefined( self ) && !isDefined( self.power_up_grab_player ) )
+		wait 0.05;
+	if ( !isDefined( self ) )
+		return;
+
+	player = self.power_up_grab_player;
+	if ( !isDefined( player ) || !isDefined( player.gsSession ) )
+		return;
+	name = "other";
+	if ( isDefined( self.powerup_name ) )
+		name = gs_clean_name( self.powerup_name );
+
+	session = player.gsSession;
+	session.powerups++;
+	if ( !isDefined( session.powerupTypes[ name ] ) )
+		session.powerupTypes[ name ] = 0;
+	session.powerupTypes[ name ] = session.powerupTypes[ name ] + 1;
+}
+
+// Mob of the Dead never fills use_magicbox / use_pap, so the box and the
+// Pack-a-Punch are watched as well: the game sets chest.chest_user and
+// trigger.pack_player when someone pays and clears them once it is over.
+gs_watch_machines()
+{
+	lastBox = [];
+	lastPap = [];
+	for ( ;; )
+	{
+		if ( isDefined( level.chests ) )
+		{
+			for ( i = 0; i < level.chests.size; i++ )
+			{
+				user = undefined;
+				if ( isDefined( level.chests[ i ] ) )
+					user = level.chests[ i ].chest_user;
+				if ( isDefined( user ) && ( !isDefined( lastBox[ i ] ) || lastBox[ i ] != user ) && isDefined( user.gsSession ) )
+					user.gsSession.boxSeen++;
+				lastBox[ i ] = user;
+			}
+		}
+		if ( isDefined( level.pap_triggers ) )
+		{
+			for ( i = 0; i < level.pap_triggers.size; i++ )
+			{
+				user = undefined;
+				if ( isDefined( level.pap_triggers[ i ] ) )
+					user = level.pap_triggers[ i ].pack_player;
+				if ( isDefined( user ) && ( !isDefined( lastPap[ i ] ) || lastPap[ i ] != user ) && isDefined( user.gsSession ) )
+					user.gsSession.papSeen++;
+				lastPap[ i ] = user;
+			}
+		}
+		wait 0.05;
 	}
 }
 
@@ -155,6 +254,8 @@ gs_snapshot_of( player, session )
 	session.headshots = gs_num( player.headshots );
 	session.downs = gs_num( player.downs );
 	session.revives = gs_num( player.revives );
+	session.box = gs_max( gs_pers( player, "use_magicbox" ), session.boxSeen );
+	session.pap = gs_max( gs_pers( player, "use_pap" ), session.papSeen );
 	if ( isDefined( player.score_total ) )
 		session.points = gs_num( player.score_total );
 	else
@@ -178,7 +279,8 @@ gs_write( session, reason )
 	     + getDvar( "net_port" ) + "|" + session.id + "|" + session.name + "|"
 	     + session.kills + "|" + session.headshots + "|" + session.downs + "|"
 	     + session.revives + "|" + session.bleedouts + "|" + session.points + "|"
-	     + session.joinRound + "|" + ms;
+	     + session.joinRound + "|" + ms + "|" + session.box + "|" + session.perks + "|"
+	     + session.pap + "|" + session.powerups + "|" + gs_powerup_types( session );
 
 	file = fopen( level.gsFile, "a" );
 	if ( isDefined( file ) && file != 0 )
@@ -193,6 +295,34 @@ gs_round()
 	if ( isDefined( level.round_number ) )
 		return level.round_number;
 	return 0;
+}
+
+// The game's own per-player counters (_zm_stats), 0 where a map does not keep them.
+gs_pers( player, name )
+{
+	if ( isDefined( player.pers ) && isDefined( player.pers[ name ] ) )
+		return int( player.pers[ name ] );
+	return 0;
+}
+
+gs_max( a, b )
+{
+	if ( a > b )
+		return a;
+	return b;
+}
+
+gs_powerup_types( session )
+{
+	out = "";
+	names = getArrayKeys( session.powerupTypes );
+	for ( i = 0; i < names.size; i++ )
+	{
+		if ( out != "" )
+			out += "/";
+		out += names[ i ] + "=" + session.powerupTypes[ names[ i ] ];
+	}
+	return out;
 }
 
 gs_num( value )

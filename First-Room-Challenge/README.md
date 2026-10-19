@@ -31,3 +31,14 @@ If you rename the file or place it in a different script folder, update the call
 - It installs `level.custom_door_buy_check` to deny normal door purchases.
 - It also disables known buyable blocker triggers after map init so debris and airlock-style blockers stay locked.
 - Wall weapons should continue to work normally.
+
+## Buried maze (`zm_buried/T6BuriedMaze.gsc`)
+
+A first-room variant for Buried. Players start at the maze fountain, and each
+game 3 of 5 wall-buy spots get a random gun. A solid wall closes the path to the
+witch's house, leaving the area puts you back instead of killing you, and the
+maze hedges reshuffle every 5th round. It only runs on `zm_buried`, next to
+`T6FirstRoomChallenge.gsc`, which locks the doors and debris.
+
+Install it in a `zm_buried` folder: `storage/t6/scripts/zm/zm_buried/T6BuriedMaze.gsc`.
+
