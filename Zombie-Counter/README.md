@@ -1,50 +1,39 @@
-# Enemy Counter + Round Timer HUD for T6 Zombies
+# HUD: zombie counter, run clock and round splits
 
-This GSC script adds a clean, stacked HUD to Black Ops 2 (T6) Zombies. It combines the enemy counter with a lightweight round timer and split display.
+The Black Ops 2 zombies HUD, drawn like the game's own HUD rather than as a panel:
+no boxes or bars, just text in the top-right corner, right-aligned. The top left
+is where the game's message feed goes (high round records and every
+`iPrintLn`), so the HUD keeps clear of it.
 
-## Features
-
-- Real-time enemy counter for zombies, Hellhounds, and currently spawned enemies.
-- Dynamic dog row that appears only during dog rounds or active Hellhound spawns.
-- End-of-round warning color when 5 or fewer zombies remain.
-- Round timer panel styled to match the enemy counter.
-- Current round timer plus the previous two completed round splits.
-- Per-player counter preference saved to `scriptdata/zc_prefs.txt`.
-- Separate chat toggles for the counter, timer, or both panels.
-
-## Commands
-
-```text
-.counter  Toggle the enemy counter
-.timer    Toggle the run timer
 ```
+                ZOMBIES 24     zombies left this round (alive + still to spawn), red at 5 or fewer
+                   ALIVE 9     of those, how many are up on the map right now
+                    DOGS 2     only on dog rounds, or while dogs are alive
+                     12:34     run clock, the time the speedrun boards use
+            ROUND 12  1:23     the round that just ended, for 6 seconds
+```
+
+The run clock takes its start from the speedrun logger (`level.srStart`), so the
+clock and the speedrun boards always show the same time. A player who loads in
+late sees the same time as everyone else.
+
+## Usage
+
+- **`.counter`** hides or shows the counter.
+- **`.timer`** hides or shows the clock and splits.
+
+The clock counts up on the player's own screen in hundredths.
+
+
+## No leaks
+
+- `settext()` is only ever called with a few fixed strings, registered once at
+  map load. Every number goes through `setvalue()`, so a long game can't fill
+  the configstring table ("G_FindConfigstringIndex: overflow").
+- No background boxes, so fewer HUD elements per player, which leaves room for
+  the perk icons. Each player's elements are destroyed when they disconnect.
+- One level thread counts the enemies for everyone.
 
 ## Installation
 
-1. Place `CounterHUD.gsc` with your other custom T6 Zombies scripts.
-2. Load the script through your GSC injector or server script configuration.
-3. Call the script init from your loaded script path, adjusted to wherever you place it:
-
-```gsc
-maps\zm\CounterHUD::init();
-```
-
-If you rename the file or place it in a different script folder, update the call path to match.
-
-## HUD Layout
-
-| Panel | Rows |
-| :--- | :--- |
-| Enemy counter | `ZOMBIES`, optional `DOGS`, `SPAWNED` |
-| Splits | current round, last round split, previous split |
-
-The timer panel is the same width and style as the counter panel, and it automatically moves down when the dog row expands the counter.
-
-## Configuration
-
-The default visual style uses:
-
-- Accent color: `(1.00, 0.55, 0.05)`
-- Background alpha: `0.72`
-- Counter refresh rate: `0.1` seconds
-- Timer source: T6 `start_of_round` / `end_of_round` notifications
+Copy `CounterHUD.gsc` into `scripts/zm/`. Plutonium runs its `init()` at map load.

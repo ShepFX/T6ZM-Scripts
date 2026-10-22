@@ -1,6 +1,23 @@
-// T6 ZM - Enemy Counter + Round Timer HUD
-// Drop into maps/mp/zombies/ alongside other _zm_* scripts.
-// Commands: .counter toggles enemy counter, .timer toggles run timer.
+// T6 ZM - Zombie counter, run clock and round splits (Shep HUD, 22 Oct 2026)
+//
+// Drawn like the game's own HUD rather than as a panel: no boxes or bars, just
+// text in the top-right corner, clear of the message feed on the left.
+//
+//     ZOMBIES 24        zombies left this round (alive + still to spawn), red at 5 or fewer
+//        ALIVE 9        of those, how many are up on the map right now (smaller, grey)
+//        DOGS 2        only while dogs are alive, or on a dog round
+//     12:34.5           run clock (from round 1, the figure the speedrun boards use)
+//     ROUND 12  1:23    the round that just ended, for 6 seconds
+//
+// .counter hides/shows the counter, .timer the clock and splits.
+//
+// No leaks:
+//   - settext() only ever gets the fixed strings in shud_strings(); every number goes
+//     through setvalue() or the client-side timer, so the configstring table cannot
+//     fill up however long a game runs ("G_FindConfigstringIndex: overflow").
+//   - At most 13 elements per player (no backgrounds), destroyed on disconnect, and
+//     every per-player thread ends on disconnect.
+//   - One level thread counts the enemies for everyone.
 
 #include common_scripts\utility;
 #include maps\mp\_utility;
@@ -17,6 +34,7 @@ init()
         return;
 
     level.zc_hud_initialized = true;
+    shud_strings();
     t6rt_init_state();
     level thread t6rt_round_monitor();
     level thread _zc_level_counter();
@@ -24,12 +42,64 @@ init()
     level thread _zc_chat_monitor();
 }
 
+// Every string the HUD shows, registered once in a fixed order before any player
+// HUD exists.
+shud_strings()
+{
+    e = newhudelem();
+    e.alpha = 0;
+    e settext( "ZOMBIES" );
+    e settext( "DOGS" );
+    e settext( "ROUND" );
+    e settext( ":" );
+    e settext( "0" );
+    e settext( "ALIVE" );
+    e destroy();
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  LAYOUT
+//  Units are the 640x480 HUD space, anchored to the player's own safe area
+//  (user_left / user_top), which is where the game puts its own HUD.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Everything lines up on the right edge; a label sits left of its number, so
+// it is placed from the width of the digits.
+shud_layout_init()
+{
+    self.shud_x = -6;         // right edge of the stack, from the right of the safe area
+    self.shud_y = 8;          // top of the first row (clear of the Plutonium watermark)
+    self.shud_num_w = 10.5;   // one big digit (default font, scale 2.0)
+    self.shud_lab_dy = 8;     // label below the number's top, so the baselines meet
+    self.shud_row_h = 20;     // one counter row
+    self.shud_alive_w = 8.4;  // one digit of the smaller ALIVE number (scale 1.6)
+    self.shud_alive_dy = 6;   // its label below the number's top
+    self.shud_alive_h = 16;   // the ALIVE row
+    self.shud_clock_h = 15;   // the clock row
+    self.shud_small_w = 5;    // one digit of the small font
+}
+
+shud_digits( n )
+{
+    if ( n >= 100 )
+        return 3;
+    if ( n >= 10 )
+        return 2;
+    return 1;
+}
+
+// The label sits left of its number, so it moves when the digit count changes.
+shud_place_label( num_digits, lab )
+{
+    lab.x = self.shud_x - num_digits * self.shud_num_w - 5;
+}
+
 
 // ════════════════════════════════════════════════════════════════════════════
 //  LEVEL-WIDE ENEMY COUNT
 //  One thread walks the zombie array per tick and caches the totals; every
-//  player's HUD loop just reads them. Previously each player scanned the array
-//  independently, so the cost grew with the player count.
+//  player's HUD loop just reads them.
 // ════════════════════════════════════════════════════════════════════════════
 
 _zc_level_counter()
@@ -38,7 +108,7 @@ _zc_level_counter()
 
     level.zc_total_z = 0;
     level.zc_total_d = 0;
-    level.zc_spawned = 0;
+    level.zc_live_z = 0;
     level.zc_dog_round = 0;
 
     for ( ;; )
@@ -56,7 +126,7 @@ _zc_level_counter()
 
         live_z = 0;
         live_d = 0;
-        enemies = _zc_get_enemies();
+        enemies = get_round_enemy_array();
         if ( isdefined( enemies ) )
         {
             for ( i = 0; i < enemies.size; i++ )
@@ -74,6 +144,8 @@ _zc_level_counter()
         if ( isdefined( level.zombie_total ) && level.zombie_total > 0 )
             remaining = level.zombie_total;
 
+        // The spawn queue is dogs on a dog round and zombies otherwise; the game
+        // does not say which queued spawns will be dogs on a mixed round.
         if ( is_dog_round )
         {
             level.zc_total_z = live_z;
@@ -85,14 +157,14 @@ _zc_level_counter()
             level.zc_total_d = live_d;
         }
 
-        level.zc_spawned = live_z;
+        level.zc_live_z = live_z;
         level.zc_dog_round = is_dog_round;
     }
 }
 
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PLAYER CONNECTION
+//  PLAYERS
 // ════════════════════════════════════════════════════════════════════════════
 
 _zc_connect_monitor()
@@ -100,24 +172,15 @@ _zc_connect_monitor()
     level endon( "end_game" );
     players = get_players();
     for ( i = 0; i < players.size; i++ )
-    {
-        players[i] thread _zc_build_hud();
-        players[i] thread t6rt_build_hud();
-    }
+        players[i] thread shud_build();
     for ( ;; )
     {
-        // T6 ZM uses "connected" for player join events
         level waittill( "connected", player );
-        player thread _zc_build_hud();
-        player thread t6rt_build_hud();
+        player thread shud_build();
     }
 }
 
-
-// ════════════════════════════════════════════════════════════════════════════
-//  PER-PLAYER PREFERENCE  (memory only; lasts for the current game)
-// ════════════════════════════════════════════════════════════════════════════
-
+// Preferences live for the current game.
 _zc_load_pref( player )
 {
     if ( isdefined( player.pers["zc_enabled"] ) )
@@ -132,11 +195,6 @@ _zc_save_pref( player, enabled )
     player.pers["zc_enabled"] = enabled;
 }
 
-
-// ════════════════════════════════════════════════════════════════════════════
-//  CHAT COMMANDS
-// ════════════════════════════════════════════════════════════════════════════
-
 _zc_chat_monitor()
 {
     level endon( "end_game" );
@@ -147,25 +205,21 @@ _zc_chat_monitor()
 
         if ( !isdefined( text ) || !isdefined( player ) )
             continue;
+        if ( !isdefined( player.shud_ready ) || !player.shud_ready )
+            continue; // HUD not built yet
 
         command = _zc_sanitize( text );
 
         if ( command == ".counter" )
         {
-            if ( !isdefined( player.zc_bg ) )
-                continue; // Counter HUD not built yet
-
             player.zc_enabled = !player.zc_enabled;
             _zc_save_pref( player, player.zc_enabled );
-            player _zc_set_visible( player.zc_enabled, 0.20 );
+            player shud_refresh( 0.20 );
         }
         else if ( command == ".timer" )
         {
-            if ( !isdefined( player.t6rt_ready ) || !player.t6rt_ready )
-                continue; // Timer HUD not built yet
-
             player.t6rt_enabled = !player.t6rt_enabled;
-            player t6rt_set_visible( player.t6rt_enabled, 0.20 );
+            player shud_refresh( 0.20 );
         }
     }
 }
@@ -174,352 +228,353 @@ _zc_sanitize( text )
 {
     if ( !isdefined( text ) )
         return "";
+
     for ( i = 0; i < 64; i++ )
     {
         if ( text == "" )
             return "";
+
         first = getSubStr( text, 0, 1 );
-        if ( first == " " || first == "§" || first == "\t" )
+        if ( first == " " || first == "\t" )
         {
             text = getSubStr( text, 1, 1024 );
             continue;
         }
         break;
     }
+
     return text;
 }
 
 
 // ════════════════════════════════════════════════════════════════════════════
-//  HUD VISIBILITY TOGGLE
+//  HUD
 // ════════════════════════════════════════════════════════════════════════════
 
-// show = 1 to reveal, 0 to hide.  t = fade duration in seconds (0 = instant).
-_zc_set_visible( show, t )
-{
-    if ( !isdefined( self.zc_bg ) )
-        return;
-
-    if ( show )
-    {
-        self.zc_bg   fadeovertime( t ); self.zc_bg.alpha   = 0.72;
-        self.zc_ac   fadeovertime( t ); self.zc_ac.alpha   = 0.90;
-        self.zc_sep  fadeovertime( t ); self.zc_sep.alpha  = 0.40;
-        self.zc_hdr  fadeovertime( t ); self.zc_hdr.alpha  = 1.0;
-        self.zc_zrow fadeovertime( t ); self.zc_zrow.alpha = 1.0;
-        self.zc_zval fadeovertime( t ); self.zc_zval.alpha = 1.0;
-        self.zc_srow fadeovertime( t ); self.zc_srow.alpha = 1.0;
-        self.zc_sval fadeovertime( t ); self.zc_sval.alpha = 1.0;
-        if ( isdefined( self.zc_dog_vis ) && self.zc_dog_vis )
-        {
-            self.zc_drow fadeovertime( t ); self.zc_drow.alpha = 1.0;
-            self.zc_dval fadeovertime( t ); self.zc_dval.alpha = 1.0;
-        }
-        // Force values to refresh without playing every pulse animation at once.
-        self.zc_suppress_pulse = true;
-        self.zc_prev_zleft   = -1;
-        self.zc_prev_dleft   = -1;
-        self.zc_prev_spawned = -1;
-        self.zc_prev_dog_vis = -1;
-    }
-    else
-    {
-        self.zc_bg   fadeovertime( t ); self.zc_bg.alpha   = 0;
-        self.zc_ac   fadeovertime( t ); self.zc_ac.alpha   = 0;
-        self.zc_sep  fadeovertime( t ); self.zc_sep.alpha  = 0;
-        self.zc_hdr  fadeovertime( t ); self.zc_hdr.alpha  = 0;
-        self.zc_zrow fadeovertime( t ); self.zc_zrow.alpha = 0;
-        self.zc_zval fadeovertime( t ); self.zc_zval.alpha = 0;
-        self.zc_drow fadeovertime( t ); self.zc_drow.alpha = 0;
-        self.zc_dval fadeovertime( t ); self.zc_dval.alpha = 0;
-        self.zc_srow fadeovertime( t ); self.zc_srow.alpha = 0;
-        self.zc_sval fadeovertime( t ); self.zc_sval.alpha = 0;
-    }
-}
-
-
-// ════════════════════════════════════════════════════════════════════════════
-//  HUD HELPERS
-// ════════════════════════════════════════════════════════════════════════════
-
-_zc_hud( player, x, y, scale, r, g, b, srt )
-{
-    e = newclienthudelem( player );
-    e.foreground     = 1;
-    e.hidewhendead   = 0;
-    e.hidewheninmenu = 1;
-    e.horzalign  = "left";
-    e.vertalign  = "top";
-    e.alignx     = "left";
-    e.aligny     = "top";
-    e.x          = x;
-    e.y          = y;
-    e.fontscale  = scale;
-    e.font       = "default";
-    e.color      = ( r, g, b );
-    e.alpha      = 1.0;
-    e.sort       = srt;
-    return e;
-}
-
-_zc_bar( player, x, y, w, h, r, g, b, a, srt )
-{
-    e = newclienthudelem( player );
-    e.foreground     = 1;
-    e.hidewhendead   = 0;
-    e.hidewheninmenu = 1;
-    e.horzalign  = "left";
-    e.vertalign  = "top";
-    e.alignx     = "left";
-    e.aligny     = "top";
-    e.x     = x;
-    e.y     = y;
-    e.sort  = srt;
-    e setshader( "white", w, h );
-    e.color = ( r, g, b );
-    e.alpha = a;
-    return e;
-}
-
-
-// ════════════════════════════════════════════════════════════════════════════
-//  ENEMY ENUMERATION (T6)
-// ════════════════════════════════════════════════════════════════════════════
-
-// T6 exposes get_round_enemy_array() directly.
-// Dogs share the same array and carry .is_dog, so one pass separates them.
-_zc_get_enemies()
-{
-    return get_round_enemy_array();
-}
-
-
-// ════════════════════════════════════════════════════════════════════════════
-//  HUD CONSTRUCTION & UPDATE LOOP
-// ════════════════════════════════════════════════════════════════════════════
-
-_zc_build_hud()
+shud_build()
 {
     self endon( "disconnect" );
     level endon( "end_game" );
-    player = self;
 
-    // Wait for full spawn before creating client hud elems.
     self waittill( "spawned_player" );
 
-    // Padding offsets — bump to shift whole HUD.
-    px = 20;
-    py = 24;
+    if ( isdefined( self.shud_ready ) && self.shud_ready )
+        return;
 
-    // Accent colour (orange).
-    ar = 1.00;
-    ag = 0.55;
-    ab = 0.05;
+    self shud_layout_init();
+    x = self.shud_x;
 
-    // Store all elements on the player entity so _zc_set_visible can reach them.
-    player.zc_bg  = _zc_bar( player, px + 0,  py + 0,  80, 42, 0.04, 0.04, 0.07, 0.72, 5 );
-    player.zc_ac  = _zc_bar( player, px + 80, py + 0,   4, 42, ar, ag, ab, 0.90, 6 );
-    player.zc_sep = _zc_bar( player, px + 4,  py + 13, 72,  1, ar, ag, ab, 0.40, 6 );
+    // Counter: a big number with a small label in front of it.
+    self.zc_zval = shud_text( self, "right", x, 0, "default", 2.0, 0.95, 0.95, 0.92 );
+    self.zc_zval setvalue( 0 );
+    self.zc_zlab = shud_text( self, "right", x, 0, "small", 1.0, 0.86, 0.86, 0.82 );
+    self.zc_zlab settext( "ZOMBIES" );
+    self shud_place_label( 1, self.zc_zlab );
 
-    player.zc_hdr = _zc_hud( player, px + 5, py + 2,  1.0, ar, ag, ab, 7 );
-    player.zc_hdr settext( "ENEMY TRACKER" );
-    player.zc_hdr.fontscale = 1.0;
+    self.zc_aval = shud_text( self, "right", x, 0, "default", 1.6, 0.74, 0.76, 0.78 );
+    self.zc_aval setvalue( 0 );
+    self.zc_alab = shud_text( self, "right", x, 0, "small", 1.0, 0.74, 0.76, 0.78 );
+    self.zc_alab settext( "ALIVE" );
+    self.zc_alab.x = x - self.shud_alive_w - 5;
 
-    // Static labels — settext() called once, no repeated configstring allocation.
-    // Numeric values use setvalue() which renders integers natively (no configstrings).
-    player.zc_zrow = _zc_hud( player, px + 5,  py + 17, 1.0, 0.58, 0.58, 0.63, 7 );
-    player.zc_zrow.font = "small";
-    player.zc_zrow settext( "ZOMBIES" );
-    player.zc_zrow.fontscale = 1.0;
+    self.zc_dval = shud_text( self, "right", x, 0, "default", 2.0, 0.94, 0.70, 0.24 );
+    self.zc_dval setvalue( 0 );
+    self.zc_dlab = shud_text( self, "right", x, 0, "small", 1.0, 0.94, 0.70, 0.24 );
+    self.zc_dlab settext( "DOGS" );
+    self shud_place_label( 1, self.zc_dlab );
 
-    player.zc_zval = _zc_hud( player, px + 50, py + 17, 1.0, 0.58, 0.58, 0.63, 7 );
-    player.zc_zval.font = "small";
-    player.zc_zval setvalue( 0 );
-    player.zc_zval.fontscale = 1.0;
+    // Run clock: counts up on the client (see t6rt_redraw).
+    self.t6rt_total_time = shud_text( self, "right", x, 0, "default", 1.3, 0.95, 0.95, 0.92 );
 
-    player.zc_drow = _zc_hud( player, px + 5,  py + 29, 1.0, 1.00, 0.78, 0.12, 7 );
-    player.zc_drow.font = "small";
-    player.zc_drow settext( "DOGS" );
-    player.zc_drow.fontscale = 1.0;
-    player.zc_drow.alpha = 0.0;
+    // Split: "ROUND 12  1:23". Fixed labels plus setvalue() numbers; the seconds
+    // are one number with a separate "0" in front under 10 seconds.
+    self.t6rt_split_label = shud_text( self, "right", x, 0, "small", 1.0, 0.86, 0.86, 0.82 );
+    self.t6rt_split_label settext( "ROUND" );
+    self.t6rt_split_round = shud_text( self, "right", x, 0, "small", 1.0, 0.86, 0.86, 0.82 );
+    self.t6rt_split_round setvalue( 0 );
+    self.t6rt_split_tx = x;
+    self.t6rt_split_secs  = shud_text( self, "right", self.t6rt_split_tx,      0, "small", 1.0, 0.66, 0.83, 1.00 );
+    self.t6rt_split_pad   = shud_text( self, "right", self.t6rt_split_tx - 5,  0, "small", 1.0, 0.66, 0.83, 1.00 );
+    self.t6rt_split_pad settext( "0" );
+    self.t6rt_split_colon = shud_text( self, "right", self.t6rt_split_tx - 10, 0, "small", 1.0, 0.66, 0.83, 1.00 );
+    self.t6rt_split_colon settext( ":" );
+    self.t6rt_split_mins  = shud_text( self, "right", self.t6rt_split_tx - 13, 0, "small", 1.0, 0.66, 0.83, 1.00 );
+    self.t6rt_split_secs setvalue( 0 );
+    self.t6rt_split_mins setvalue( 0 );
 
-    player.zc_dval = _zc_hud( player, px + 50, py + 29, 1.0, 1.00, 0.78, 0.12, 7 );
-    player.zc_dval.font = "small";
-    player.zc_dval setvalue( 0 );
-    player.zc_dval.fontscale = 1.0;
-    player.zc_dval.alpha = 0.0;
+    self.t6rt_split_elems = [];
+    self.t6rt_split_elems[0] = self.t6rt_split_label;
+    self.t6rt_split_elems[1] = self.t6rt_split_round;
+    self.t6rt_split_elems[2] = self.t6rt_split_secs;
+    self.t6rt_split_elems[3] = self.t6rt_split_pad;
+    self.t6rt_split_elems[4] = self.t6rt_split_colon;
+    self.t6rt_split_elems[5] = self.t6rt_split_mins;
 
-    player.zc_srow = _zc_hud( player, px + 5,  py + 29, 1.0, 0.50, 0.88, 0.50, 7 );
-    player.zc_srow.font = "small";
-    player.zc_srow settext( "SPAWNED" );
-    player.zc_srow.fontscale = 1.0;
+    // Everything starts hidden; shud_refresh() shows what applies.
+    elems = self shud_all_elems();
+    for ( i = 0; i < elems.size; i++ )
+        elems[i].alpha = 0;
 
-    player.zc_sval = _zc_hud( player, px + 50, py + 29, 1.0, 0.50, 0.88, 0.50, 7 );
-    player.zc_sval.font = "small";
-    player.zc_sval setvalue( 0 );
-    player.zc_sval.fontscale = 1.0;
+    self.zc_enabled = _zc_load_pref( self );
+    self.t6rt_enabled = level.t6rt_enabled_default;
+    self.zc_zshow = true;
+    self.zc_ashow = false;
+    self.zc_dshow = false;
+    self.t6rt_split_showing = false;
+    self.t6rt_split_padded = true;
+    self.t6rt_seen_generation = -1;
+    self.t6rt_seen_timer_generation = -1;
+    self.shud_ready = true;
 
-    player.zc_dog_vis = 0;
+    self thread shud_cleanup();
+    self shud_refresh( 0 );
+    self thread shud_counter_loop();
+    self thread t6rt_refresh_loop();
+    self thread t6rt_split_loop();
+}
 
-    // Prev-value trackers kept on player so _zc_set_visible can reset them.
-    player.zc_prev_zleft   = -1;
-    player.zc_prev_dleft   = -1;
-    player.zc_prev_spawned = -1;
-    player.zc_prev_dog_vis = -1;
+shud_all_elems()
+{
+    elems = [];
+    elems[elems.size] = self.zc_zval;
+    elems[elems.size] = self.zc_zlab;
+    elems[elems.size] = self.zc_aval;
+    elems[elems.size] = self.zc_alab;
+    elems[elems.size] = self.zc_dval;
+    elems[elems.size] = self.zc_dlab;
+    if ( isdefined( self.t6rt_total_time ) )
+        elems[elems.size] = self.t6rt_total_time;
+    for ( i = 0; i < self.t6rt_split_elems.size; i++ )
+        elems[elems.size] = self.t6rt_split_elems[i];
+    return elems;
+}
 
-    // Load saved preference; hide instantly if the player had it off.
-    player.zc_enabled = _zc_load_pref( player );
-    if ( !player.zc_enabled )
-        player _zc_set_visible( 0, 0 );
+// The clock element is replaced whenever the run restarts, so this looks the
+// elements up when the player leaves rather than remembering them now.
+shud_cleanup()
+{
+    self waittill( "disconnect" );
+
+    elems = self shud_all_elems();
+    for ( i = 0; i < elems.size; i++ )
+    {
+        if ( isdefined( elems[i] ) )
+            elems[i] destroy();
+    }
+}
+
+// Puts every row where it belongs for what is on show, and fades each element
+// to its alpha. Rows stack from the top: zombies, alive, dogs, clock, split.
+shud_refresh( t )
+{
+    y = self.shud_y;
+
+    za = 0;
+    aa = 0;
+    da = 0;
+    if ( self.zc_enabled )
+    {
+        if ( self.zc_zshow )
+        {
+            self shud_place_row( self.zc_zval, self.zc_zlab, y );
+            y += self.shud_row_h;
+            za = 1;
+        }
+        if ( self.zc_zshow && self.zc_ashow )
+        {
+            self.zc_aval.y = y;
+            self.zc_alab.y = y + self.shud_alive_dy;
+            y += self.shud_alive_h;
+            aa = 1;
+        }
+        if ( self.zc_dshow )
+        {
+            self shud_place_row( self.zc_dval, self.zc_dlab, y );
+            y += self.shud_row_h;
+            da = 1;
+        }
+        y += 2;
+    }
+    shud_fade( self.zc_zval, za, t );
+    shud_fade( self.zc_zlab, za * 0.8, t );
+    shud_fade( self.zc_aval, aa * 0.9, t );
+    shud_fade( self.zc_alab, aa * 0.7, t );
+    shud_fade( self.zc_dval, da, t );
+    shud_fade( self.zc_dlab, da * 0.85, t );
+
+    ca = 0;
+    sa = 0;
+    if ( self.t6rt_enabled )
+    {
+        if ( level.t6rt_total_start_ms > 0 )
+            ca = 0.9;
+        if ( self.t6rt_split_showing )
+            sa = 1;
+    }
+    if ( isdefined( self.t6rt_total_time ) )
+    {
+        self.t6rt_total_time.y = y;
+        shud_fade( self.t6rt_total_time, ca, t );
+    }
+    y += self.shud_clock_h;
+
+    for ( i = 0; i < self.t6rt_split_elems.size; i++ )
+    {
+        self.t6rt_split_elems[i].y = y;
+        a = sa;
+        if ( i == 0 || i == 1 )
+            a = sa * 0.8;
+        if ( i == 3 && !self.t6rt_split_padded )
+            a = 0;
+        shud_fade( self.t6rt_split_elems[i], a, t );
+    }
+}
+
+// The label sits on the number's baseline.
+shud_place_row( num, lab, y )
+{
+    num.y = y;
+    lab.y = y + self.shud_lab_dy;
+}
+
+shud_fade( e, a, t )
+{
+    if ( !isdefined( e ) )
+        return;
+    if ( t > 0 )
+        e fadeovertime( t );
+    e.alpha = a;
+}
+
+shud_counter_loop()
+{
+    self endon( "disconnect" );
+    level endon( "end_game" );
+
+    prev_z = -1;
+    prev_a = -1;
+    prev_d = -1;
 
     for ( ;; )
     {
         wait 0.1;
 
-        if ( !player.zc_enabled )
-            continue;
-
-        // Totals are computed once per tick by _zc_level_counter(); just read them.
         if ( !isdefined( level.zc_total_z ) )
             continue;
 
-        is_dog_round = level.zc_dog_round;
-        total_z = level.zc_total_z;
-        total_d = level.zc_total_d;
+        z = level.zc_total_z;
+        a = level.zc_live_z;
+        d = level.zc_total_d;
 
-        // SPAWNED = currently alive on the map right now
-        spawned = level.zc_spawned;
-
-        // ZOMBIES
-        if ( total_z != player.zc_prev_zleft )
+        // A dog round with no zombies left shows the dogs on their own; ALIVE only
+        // while there are zombies left in the round.
+        zshow = !( level.zc_dog_round && z == 0 );
+        ashow = zshow && z > 0;
+        dshow = level.zc_dog_round || d > 0;
+        if ( zshow != self.zc_zshow || ashow != self.zc_ashow || dshow != self.zc_dshow )
         {
-            player.zc_prev_zleft = total_z;
-            player.zc_zval setvalue( total_z );
-            if ( total_z <= 5 )
-            {
-                player.zc_zrow.color = ( 1.0, 0.25, 0.05 );
-                player.zc_zval.color = ( 1.0, 0.25, 0.05 );
-            }
+            self.zc_zshow = zshow;
+            self.zc_ashow = ashow;
+            self.zc_dshow = dshow;
+            self shud_refresh( 0.25 );
+        }
+
+        if ( z != prev_z )
+        {
+            if ( prev_z < 0 || shud_digits( z ) != shud_digits( prev_z ) )
+                self shud_place_label( shud_digits( z ), self.zc_zlab );
+            prev_z = z;
+            self.zc_zval setvalue( z );
+            if ( z <= 5 )
+                self.zc_zval.color = ( 0.92, 0.22, 0.14 );
             else
-            {
-                player.zc_zrow.color = ( 0.58, 0.58, 0.63 );
-                player.zc_zval.color = ( 0.58, 0.58, 0.63 );
-            }
-            if ( !isdefined( player.zc_suppress_pulse ) || !player.zc_suppress_pulse )
-                player.zc_zval thread _zc_pulse( player );
+                self.zc_zval.color = ( 0.95, 0.95, 0.92 );
+            if ( self.zc_enabled )
+                self.zc_zval thread shud_pulse( self );
         }
 
-        // Dog row fade
-        if ( is_dog_round || total_d > 0 )
-            dog_vis = 1;
-        else
-            dog_vis = 0;
-
-        player.zc_dog_vis = dog_vis;
-
-        if ( dog_vis != player.zc_prev_dog_vis )
+        // The alive count moves constantly, so it changes quietly (no pulse).
+        if ( a != prev_a )
         {
-            player.zc_prev_dog_vis = dog_vis;
-            player.zc_drow fadeovertime( 0.25 );
-            player.zc_drow.alpha = dog_vis;
-            player.zc_dval fadeovertime( 0.25 );
-            player.zc_dval.alpha = dog_vis;
-            if ( dog_vis )
-            {
-                player.zc_srow.y = py + 41;
-                player.zc_sval.y = py + 41;
-                player.zc_bg setshader( "white", 80, 55 );
-                player.zc_ac setshader( "white",  4, 55 );
-                if ( isdefined( player.t6rt_ready ) && player.t6rt_ready )
-                    player t6rt_move( 83 );
-            }
-            else
-            {
-                player.zc_srow.y = py + 29;
-                player.zc_sval.y = py + 29;
-                player.zc_bg setshader( "white", 80, 42 );
-                player.zc_ac setshader( "white",  4, 42 );
-                if ( isdefined( player.t6rt_ready ) && player.t6rt_ready )
-                    player t6rt_move( 69 );
-            }
+            if ( prev_a < 0 || shud_digits( a ) != shud_digits( prev_a ) )
+                self.zc_alab.x = self.shud_x - shud_digits( a ) * self.shud_alive_w - 5;
+            prev_a = a;
+            self.zc_aval setvalue( a );
         }
 
-        // DOGS
-        if ( total_d != player.zc_prev_dleft )
+        if ( d != prev_d )
         {
-            player.zc_prev_dleft = total_d;
-            player.zc_dval setvalue( total_d );
-            if ( !isdefined( player.zc_suppress_pulse ) || !player.zc_suppress_pulse )
-                player.zc_dval thread _zc_pulse( player );
+            if ( prev_d < 0 || shud_digits( d ) != shud_digits( prev_d ) )
+                self shud_place_label( shud_digits( d ), self.zc_dlab );
+            prev_d = d;
+            self.zc_dval setvalue( d );
+            if ( self.zc_enabled && dshow )
+                self.zc_dval thread shud_pulse( self );
         }
-
-        // SPAWNED
-        if ( spawned != player.zc_prev_spawned )
-        {
-            player.zc_prev_spawned = spawned;
-            player.zc_sval setvalue( spawned );
-            if ( !isdefined( player.zc_suppress_pulse ) || !player.zc_suppress_pulse )
-                player.zc_sval thread _zc_pulse( player );
-        }
-
-        player.zc_suppress_pulse = false;
     }
 }
 
-
-// ════════════════════════════════════════════════════════════════════════════
-//  PULSE ANIMATION
-// ════════════════════════════════════════════════════════════════════════════
-
-_zc_pulse( player )
+// A quick tick on the number when it changes.
+shud_pulse( player )
 {
-    self notify( "zc_pulse" );
-    self endon(  "zc_pulse" );
+    self notify( "shud_pulse" );
+    self endon( "shud_pulse" );
     player endon( "disconnect" );
 
-    base = self.fontscale;
     self changefontscaleovertime( 0.05 );
-    self.fontscale = base * 1.5;
+    self.fontscale = 2.3;
     wait 0.05;
 
     if ( !isdefined( self ) )
         return;
 
-    self changefontscaleovertime( 0.14 );
-    self.fontscale = base;
+    self changefontscaleovertime( 0.15 );
+    self.fontscale = 2.0;
+}
+
+shud_text( player, align, x, y, font, scale, r, g, b )
+{
+    e = newclienthudelem( player );
+    e.foreground = 1;
+    e.hidewhendead = 0;
+    e.hidewheninmenu = 1;
+    e.horzalign = "user_right";
+    e.vertalign = "user_top";
+    e.alignx = align;
+    e.aligny = "top";
+    e.x = x;
+    e.y = y;
+    e.font = font;
+    e.fontscale = scale;
+    e.color = ( r, g, b );
+    e.alpha = 1;
+    e.sort = 7;
+    return e;
 }
 
 
 // ============================================================================
-//  ROUND TIMER / SPLITTER
+//  RUN CLOCK / SPLITS
 // ============================================================================
 
 t6rt_init_state()
 {
     level.t6rt_enabled_default = true;
     level.t6rt_current_round = 0;
-    level.t6rt_current_time = "";
     level.t6rt_round_active = false;
     level.t6rt_round_start_ms = 0;
     level.t6rt_last_completed_round = 0;
-    level.t6rt_prev_round_1 = 0;
-    level.t6rt_prev_round_2 = 0;
-    level.t6rt_prev_time_1 = "";
-    level.t6rt_prev_time_2 = "";
     level.t6rt_generation = 0;
-    level.t6rt_timer_generation = 0;
 
     // Total run time: set once when round 1 starts and never reset, so the
     // headline figure matches what the speedrun boards rank runs on.
     level.t6rt_total_start_ms = 0;
     level.t6rt_total_generation = 0;
 
-    // The split for the round that just ended drops in below the total, then
+    // The split for the round that just ended shows under the clock, then
     // hides itself again.
     level.t6rt_split_round = 0;
-    level.t6rt_split_time = "";
     level.t6rt_split_ms = 0;
-    level.t6rt_split_generation = 0;
     level.t6rt_split_seconds = 6;
 }
 
@@ -559,24 +614,11 @@ t6rt_start_round( round )
     if ( level.t6rt_round_active && level.t6rt_current_round == round && level.t6rt_round_start_ms == start_ms )
         return;
 
-    // First round of the game starts the run clock - once someone is actually
-    // playing. A map can sit at round 1 for hours with nobody on (Stairway
-    // starts its rounds without waiting for players), and a clock started then
-    // showed 0:00:00 instead of counting. t6rt_round_poll_monitor() starts it
-    // the moment a player is in, if they arrive after the round began.
-    if ( level.t6rt_total_start_ms <= 0 && round > 0 && t6rt_anyone_playing() )
-    {
-        level.t6rt_total_start_ms = start_ms;
-        level.t6rt_total_generation++;
-    }
-
     level.t6rt_current_round = round;
-    level.t6rt_current_time = "";
     level.t6rt_round_active = true;
     level.t6rt_round_start_ms = start_ms;
 
     level.t6rt_generation++;
-    level.t6rt_timer_generation++;
     level notify( "t6rt_refresh" );
 }
 
@@ -586,21 +628,11 @@ t6rt_store_split( elapsed_ms )
         return;
 
     level.t6rt_last_completed_round = level.t6rt_current_round;
-    level.t6rt_current_time = t6rt_format_time( elapsed_ms );
     level.t6rt_round_active = false;
     level.t6rt_generation++;
-    level.t6rt_timer_generation++;
-
-    level.t6rt_prev_round_2 = level.t6rt_prev_round_1;
-    level.t6rt_prev_time_2 = level.t6rt_prev_time_1;
-
-    level.t6rt_prev_round_1 = level.t6rt_current_round;
-    level.t6rt_prev_time_1 = t6rt_format_time( elapsed_ms );
 
     level.t6rt_split_round = level.t6rt_current_round;
-    level.t6rt_split_time = t6rt_format_time( elapsed_ms );
     level.t6rt_split_ms = elapsed_ms;
-    level.t6rt_split_generation++;
 
     level notify( "t6rt_refresh" );
     level notify( "t6rt_split" );
@@ -624,14 +656,24 @@ t6rt_round_poll_monitor()
 
     for ( ;; )
     {
-        wait 1;
+        wait 0.25;
 
         if ( !isdefined( level.round_number ) )
             continue;
 
-        if ( level.t6rt_total_start_ms <= 0 && level.round_number > 0 && t6rt_anyone_playing() )
+        // The run clock starts with T6Speedrun's run (level.srStart: the first
+        // player's first move after spawning, never before round 1), so the two
+        // always match and a slow load-in costs nothing. A game that did not
+        // start at round 1 is not timed there; the clock then runs from the
+        // first round seen once someone is playing.
+        start = 0;
+        if ( isdefined( level.srStart ) )
+            start = level.srStart;
+        else if ( level.t6rt_total_start_ms <= 0 && level.round_number > 1 && t6rt_anyone_playing() )
+            start = gettime();
+        if ( start > 0 && start != level.t6rt_total_start_ms )
         {
-            level.t6rt_total_start_ms = gettime();
+            level.t6rt_total_start_ms = start;
             level.t6rt_total_generation++;
             level.t6rt_generation++;
             level notify( "t6rt_refresh" );
@@ -659,182 +701,6 @@ t6rt_round_poll_monitor()
     }
 }
 
-t6rt_build_hud()
-{
-    self endon( "disconnect" );
-    level endon( "end_game" );
-    level endon( "game_ended" );
-
-    player = self;
-    player waittill( "spawned_player" );
-
-    if ( isdefined( player.t6rt_ready ) && player.t6rt_ready )
-        return;
-
-    player.t6rt_ready = true;
-    player.t6rt_enabled = level.t6rt_enabled_default;
-    player.t6rt_seen_generation = -1;
-    player.t6rt_seen_timer_generation = -1;
-
-    // Same visual language and width as the counter, stacked below it.
-    px = 20;
-    py = 69;
-    if ( level flag_exists( "dog_round" ) && flag( "dog_round" ) )
-        py = 83;
-    w = 80;
-    // Just the title and the run clock by default; the split row below adds
-    // its own background only while it is on screen.
-    h = 30;
-
-    ar = 1.00;
-    ag = 0.55;
-    ab = 0.05;
-
-    player.t6rt_time_x = px + 75;
-    player.t6rt_time_y = py + 17;
-    player.t6rt_split_y = py + 31;
-
-    player.t6rt_bg = t6rt_bar( player, px + 0, py + 0, w, h, 0.04, 0.04, 0.07, 0.72, 5 );
-    player.t6rt_accent = t6rt_bar( player, px + w, py + 0, 4, h, ar, ag, ab, 0.90, 6 );
-    player.t6rt_sep = t6rt_bar( player, px + 4, py + 13, w - 8, 1, ar, ag, ab, 0.40, 6 );
-
-    player.t6rt_title = t6rt_text_left( player, px + 5, py + 2, "default", 1.0, ar, ag, ab, 7 );
-    player.t6rt_title settext( "RUN" );
-
-    player.t6rt_total_label = t6rt_text_left( player, px + 5, py + 17, "small", 1.0, 0.58, 0.58, 0.63, 7 );
-    player.t6rt_total_label settext( "TOTAL" );
-
-    player.t6rt_total_time = t6rt_text_right( player, player.t6rt_time_x, player.t6rt_time_y, "small", 1.0, 1.00, 1.00, 1.00, 7 );
-    player.t6rt_total_time settext( "--:--" );
-
-    // Split row: same width, sitting directly under the panel, hidden until a
-    // round ends. Its own bar and accent so the panel appears to grow.
-    player.t6rt_split_bg = t6rt_bar( player, px + 0, py + 30, w, 14, 0.04, 0.04, 0.07, 0.72, 5 );
-    player.t6rt_split_bg.alpha = 0;
-
-    player.t6rt_split_accent = t6rt_bar( player, px + w, py + 30, 4, 14, ar, ag, ab, 0.90, 6 );
-    player.t6rt_split_accent.alpha = 0;
-
-    // Every distinct settext() string takes a configstring slot for the rest of
-    // the map, so the split row is fixed labels plus setvalue() numbers: "R" +
-    // round, then m:ss with the seconds as two single digits (keeps 1:05's 0).
-    // Two new strings a round would overflow the table in a long game and
-    // disconnect everyone (G_FindConfigstringIndex: overflow).
-    sy = player.t6rt_split_y;
-    tx = player.t6rt_time_x;
-    player.t6rt_split_label = t6rt_text_left( player, px + 5, sy, "small", 1.0, ar, ag, ab, 7 );
-    player.t6rt_split_label settext( "R" );
-    player.t6rt_split_round = t6rt_text_left( player, px + 10, sy, "small", 1.0, ar, ag, ab, 7 );
-    player.t6rt_split_round setvalue( 0 );
-    // The seconds are one number (so the digits sit together), with a
-    // separate "0" in front of it under 10 seconds.
-    player.t6rt_split_secs  = t6rt_text_right( player, tx,      sy, "small", 1.0, 0.90, 0.94, 1.00, 7 );
-    player.t6rt_split_pad   = t6rt_text_right( player, tx - 5,  sy, "small", 1.0, 0.90, 0.94, 1.00, 7 );
-    player.t6rt_split_pad settext( "0" );
-    player.t6rt_split_colon = t6rt_text_right( player, tx - 10, sy, "small", 1.0, 0.90, 0.94, 1.00, 7 );
-    player.t6rt_split_colon settext( ":" );
-    player.t6rt_split_mins  = t6rt_text_right( player, tx - 13, sy, "small", 1.0, 0.90, 0.94, 1.00, 7 );
-    player.t6rt_split_secs setvalue( 0 );
-    player.t6rt_split_mins setvalue( 0 );
-    player.t6rt_split_padded = true;
-
-    player.t6rt_split_elems = [];
-    player.t6rt_split_elems[0] = player.t6rt_split_label;
-    player.t6rt_split_elems[1] = player.t6rt_split_round;
-    player.t6rt_split_elems[2] = player.t6rt_split_secs;
-    player.t6rt_split_elems[3] = player.t6rt_split_pad;
-    player.t6rt_split_elems[4] = player.t6rt_split_colon;
-    player.t6rt_split_elems[5] = player.t6rt_split_mins;
-    for ( i = 0; i < player.t6rt_split_elems.size; i++ )
-        player.t6rt_split_elems[i].alpha = 0;
-
-    player.t6rt_split_showing = false;
-    player.t6rt_seen_split_generation = level.t6rt_split_generation;
-
-    if ( !player.t6rt_enabled )
-        player t6rt_set_visible( 0, 0 );
-
-    player thread t6rt_refresh_loop();
-    player thread t6rt_split_loop();
-}
-
-// Shows the round that just finished, then tidies itself away so only the run
-// clock is left. A second round ending while it is up simply restarts it.
-t6rt_split_loop()
-{
-    self endon( "disconnect" );
-    level endon( "end_game" );
-    level endon( "game_ended" );
-
-    for ( ;; )
-    {
-        level waittill( "t6rt_split" );
-
-        if ( !isdefined( self.t6rt_split_label ) )
-            continue;
-
-        self.t6rt_seen_split_generation = level.t6rt_split_generation;
-        seconds = int( level.t6rt_split_ms / 1000 );
-        self.t6rt_split_round setvalue( level.t6rt_split_round );
-        self.t6rt_split_mins setvalue( int( seconds / 60 ) );
-        self.t6rt_split_secs setvalue( seconds % 60 );
-        self.t6rt_split_padded = ( seconds % 60 ) < 10;
-
-        if ( !self.t6rt_enabled )
-            continue;
-
-        self thread t6rt_split_show_then_hide();
-    }
-}
-
-t6rt_split_show_then_hide()
-{
-    self endon( "disconnect" );
-    self notify( "t6rt_split_showing" );
-    self endon( "t6rt_split_showing" );
-    level endon( "end_game" );
-    level endon( "game_ended" );
-
-    self.t6rt_split_showing = true;
-    self t6rt_split_set_visible( 1, 0.15 );
-
-    wait level.t6rt_split_seconds;
-
-    self t6rt_split_set_visible( 0, 0.4 );
-    self.t6rt_split_showing = false;
-}
-
-t6rt_split_set_visible( visible, fade_time )
-{
-    if ( !isdefined( self.t6rt_split_bg ) )
-        return;
-
-    bg_alpha = 0;
-    accent_alpha = 0;
-    text_alpha = 0;
-
-    if ( visible )
-    {
-        bg_alpha = 0.72;
-        accent_alpha = 0.90;
-        text_alpha = 1;
-    }
-
-    self.t6rt_split_bg fadeovertime( fade_time );
-    self.t6rt_split_bg.alpha = bg_alpha;
-    self.t6rt_split_accent fadeovertime( fade_time );
-    self.t6rt_split_accent.alpha = accent_alpha;
-    for ( i = 0; i < self.t6rt_split_elems.size; i++ )
-    {
-        self.t6rt_split_elems[i] fadeovertime( fade_time );
-        self.t6rt_split_elems[i].alpha = text_alpha;
-    }
-
-    // The "0" pad only shows in front of single-digit seconds.
-    if ( !self.t6rt_split_padded )
-        self.t6rt_split_pad.alpha = 0;
-}
-
 t6rt_refresh_loop()
 {
     self endon( "disconnect" );
@@ -850,171 +716,86 @@ t6rt_refresh_loop()
     }
 }
 
+// The run clock counts up on the client, so it only has to be handed a new
+// starting value when the run itself changes - not on every round. A running
+// timer cannot be re-based, so the element is replaced.
 t6rt_redraw()
 {
     self.t6rt_seen_generation = level.t6rt_generation;
 
-    // The run clock counts up on the client, so it only has to be handed a new
-    // starting value when the run itself changes - not on every round.
-    if ( isdefined( self.t6rt_total_time ) && self.t6rt_seen_timer_generation != level.t6rt_total_generation )
-    {
-        self.t6rt_seen_timer_generation = level.t6rt_total_generation;
-        self.t6rt_total_time destroy();
-        self.t6rt_total_time = t6rt_text_right( self, self.t6rt_time_x, self.t6rt_time_y, "small", 1.0, 1.00, 1.00, 1.00, 7 );
+    if ( self.t6rt_seen_timer_generation == level.t6rt_total_generation )
+        return;
+    self.t6rt_seen_timer_generation = level.t6rt_total_generation;
 
-        if ( level.t6rt_total_start_ms > 0 )
-            self.t6rt_total_time settenthstimerup( t6rt_total_elapsed_seconds() + 0.1 );
-        else
-            self.t6rt_total_time settext( "--:--" );
-
-        if ( isdefined( self.t6rt_enabled ) && !self.t6rt_enabled )
-            self.t6rt_total_time.alpha = 0;
-    }
-
-}
-
-t6rt_set_visible( visible, fade_time )
-{
-    alpha = 0;
-    if ( visible )
-        alpha = 1;
-
-    bg_alpha = 0;
-    accent_alpha = 0;
-    sep_alpha = 0;
-
-    if ( visible )
-    {
-        bg_alpha = 0.72;
-        accent_alpha = 0.90;
-        sep_alpha = 0.40;
-    }
-
-    self.t6rt_bg fadeovertime( fade_time );
-    self.t6rt_bg.alpha = bg_alpha;
-    self.t6rt_accent fadeovertime( fade_time );
-    self.t6rt_accent.alpha = accent_alpha;
-    self.t6rt_sep fadeovertime( fade_time );
-    self.t6rt_sep.alpha = sep_alpha;
-
-    elems = [];
-    elems[0] = self.t6rt_title;
-    elems[1] = self.t6rt_total_label;
-    elems[2] = self.t6rt_total_time;
-
-    for ( i = 0; i < elems.size; i++ )
-    {
-        if ( !isdefined( elems[i] ) )
-            continue;
-
-        elems[i] fadeovertime( fade_time );
-        elems[i].alpha = alpha;
-    }
-
-    // The split row follows the panel, but only while it is actually up.
-    if ( !visible || !isdefined( self.t6rt_split_showing ) || !self.t6rt_split_showing )
-        self t6rt_split_set_visible( 0, fade_time );
-    else
-        self t6rt_split_set_visible( 1, fade_time );
-}
-
-t6rt_move( py )
-{
-    if ( !isdefined( self.t6rt_bg ) )
+    if ( level.t6rt_total_start_ms <= 0 )
         return;
 
-    self.t6rt_bg.y = py;
-    self.t6rt_accent.y = py;
-    self.t6rt_sep.y = py + 13;
-    self.t6rt_title.y = py + 2;
-    self.t6rt_total_label.y = py + 17;
-    self.t6rt_time_y = py + 17;
     if ( isdefined( self.t6rt_total_time ) )
-        self.t6rt_total_time.y = self.t6rt_time_y;
+        self.t6rt_total_time destroy();
+    self.t6rt_total_time = shud_text( self, "right", self.shud_x, 0, "default", 1.3, 0.95, 0.95, 0.92 );
+    self.t6rt_total_time settenthstimerup( t6rt_total_elapsed_seconds() + 0.1 );
+    self shud_refresh( 0 );
+}
 
-    self.t6rt_split_y = py + 31;
-    if ( isdefined( self.t6rt_split_bg ) )
+t6rt_split_loop()
+{
+    self endon( "disconnect" );
+    level endon( "end_game" );
+    level endon( "game_ended" );
+
+    for ( ;; )
     {
-        self.t6rt_split_bg.y = py + 30;
-        self.t6rt_split_accent.y = py + 30;
-        for ( i = 0; i < self.t6rt_split_elems.size; i++ )
-            self.t6rt_split_elems[i].y = self.t6rt_split_y;
+        level waittill( "t6rt_split" );
+        self thread t6rt_split_show();
     }
 }
 
-t6rt_text_left( player, x, y, font, scale, r, g, b, sort )
+// The round that just finished shows under the clock for a few seconds. A
+// second round ending while it is up simply restarts it.
+t6rt_split_show()
 {
-    elem = newclienthudelem( player );
-    elem.foreground = 1;
-    elem.hidewhendead = 0;
-    elem.hidewheninmenu = 1;
-    elem.horzalign = "left";
-    elem.vertalign = "top";
-    elem.alignx = "left";
-    elem.aligny = "top";
-    elem.x = x;
-    elem.y = y;
-    elem.font = font;
-    elem.fontscale = scale;
-    elem.color = ( r, g, b );
-    elem.alpha = 1;
-    elem.sort = sort;
-    return elem;
-}
+    self endon( "disconnect" );
+    self notify( "t6rt_split_new" );
+    self endon( "t6rt_split_new" );
+    level endon( "end_game" );
 
-t6rt_text_right( player, x, y, font, scale, r, g, b, sort )
-{
-    elem = newclienthudelem( player );
-    elem.foreground = 1;
-    elem.hidewhendead = 0;
-    elem.hidewheninmenu = 1;
-    elem.horzalign = "left";
-    elem.vertalign = "top";
-    elem.alignx = "right";
-    elem.aligny = "top";
-    elem.x = x;
-    elem.y = y;
-    elem.font = font;
-    elem.fontscale = scale;
-    elem.color = ( r, g, b );
-    elem.alpha = 1;
-    elem.sort = sort;
-    return elem;
-}
+    total = int( level.t6rt_split_ms / 1000 );
+    if ( total < 0 )
+        total = 0;
+    m = int( total / 60 );
+    s = total - m * 60;
 
-t6rt_bar( player, x, y, w, h, r, g, b, a, sort )
-{
-    elem = newclienthudelem( player );
-    elem.foreground = 1;
-    elem.hidewhendead = 0;
-    elem.hidewheninmenu = 1;
-    elem.horzalign = "left";
-    elem.vertalign = "top";
-    elem.alignx = "left";
-    elem.aligny = "top";
-    elem.x = x;
-    elem.y = y;
-    elem.sort = sort;
-    elem setshader( "white", w, h );
-    elem.color = ( r, g, b );
-    elem.alpha = a;
-    return elem;
-}
+    // Right to left: the time at the edge, the round number before it, then "ROUND".
+    w = self.shud_small_w;
+    rx = self.t6rt_split_tx - ( ( shud_digits( m ) + 2 ) * w + 3 ) - 8;
+    self.t6rt_split_round.x = rx;
+    self.t6rt_split_label.x = rx - shud_digits( level.t6rt_split_round ) * w - 4;
 
-t6rt_format_time( elapsed_ms )
-{
-    if ( elapsed_ms < 0 )
-        elapsed_ms = 0;
+    // Under 10 seconds the "0" pad fills the tens place; otherwise the colon
+    // moves up against the two-digit seconds.
+    self.t6rt_split_padded = s < 10;
+    if ( self.t6rt_split_padded )
+    {
+        self.t6rt_split_colon.x = self.t6rt_split_tx - 10;
+        self.t6rt_split_mins.x = self.t6rt_split_tx - 13;
+    }
+    else
+    {
+        self.t6rt_split_colon.x = self.t6rt_split_tx - 9;
+        self.t6rt_split_mins.x = self.t6rt_split_tx - 12;
+    }
 
-    total_seconds = int( elapsed_ms / 1000 );
-    minutes = int( total_seconds / 60 );
-    seconds = total_seconds - ( minutes * 60 );
+    self.t6rt_split_round setvalue( level.t6rt_split_round );
+    self.t6rt_split_mins setvalue( m );
+    self.t6rt_split_secs setvalue( s );
 
-    second_text = "" + seconds;
-    if ( seconds < 10 )
-        second_text = "0" + seconds;
+    self.t6rt_split_showing = true;
+    self shud_refresh( 0.3 );
 
-    return minutes + ":" + second_text;
+    wait level.t6rt_split_seconds;
+
+    self.t6rt_split_showing = false;
+    self shud_refresh( 0.6 );
 }
 
 t6rt_anyone_playing()
@@ -1034,18 +815,6 @@ t6rt_total_elapsed_seconds()
         return 0;
 
     elapsed_ms = gettime() - level.t6rt_total_start_ms;
-    if ( elapsed_ms < 0 )
-        elapsed_ms = 0;
-
-    return elapsed_ms / 1000;
-}
-
-t6rt_elapsed_seconds()
-{
-    if ( !isdefined( level.t6rt_round_start_ms ) || level.t6rt_round_start_ms <= 0 )
-        return 0;
-
-    elapsed_ms = gettime() - level.t6rt_round_start_ms;
     if ( elapsed_ms < 0 )
         elapsed_ms = 0;
 
