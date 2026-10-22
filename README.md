@@ -15,7 +15,6 @@ deployed name is the one that matters — that is the filename to copy to.
 | --- | --- | --- |
 | `Achievements/T6Achievements.gsc` | `T6Achievements.gsc` | 4 MP servers, in `scripts/mp/` |
 | `AFK/_zm_AFK.gsc` | `_zm_afk.gsc` | 11 zombie servers |
-| `AntiExploit/_zm_anti_exploit_t6.gsc` | `_zm_anti_exploit_clean.gsc` | 11 zombie servers |
 | `First-Room-Challenge/FirstRoomChallenge.gsc` | `T6FirstRoomChallenge.gsc` | t6zm-first |
 | `GameStats/T6GameStats.gsc` | `T6GameStats.gsc` | 11 zombie servers |
 | `LiveRound/T6LiveRound.gsc` | `T6LiveRound.gsc` | 11 zombie servers |
