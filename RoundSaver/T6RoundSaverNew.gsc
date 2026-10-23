@@ -29,7 +29,6 @@ onPlayerConnect()
 
 high_round_tracker()
 {
-	thread high_round_info_giver();
 	gamemode = gamemodeName( getDvar( "ui_gametype" ) );
 	map = mapName( level.script );
 	if( level.script == "zm_transit" && getDvar( "ui_gametype" ) == "zsurvival" )
@@ -178,21 +177,17 @@ updateHighRoundRecord( numPlayers, players )
 		level.highRoundPlayersFour = level.highRoundPlayers;
 	}
 
-	// Announce new record, updating names if online, falling back to file names if offline
+	// Announce the new record in one line, to everyone at once.
+	if( numPlayers == 1 )
+		msg = "^1NEW RECORD! ^71 Player: ^2" + level.highRoundOnePlayer + " ^7(" + get_current_names_from_ids(level.highRoundPlayersOne) + ")";
+	else if( numPlayers == 2 )
+		msg = "^1NEW RECORD! ^72 Players: ^2" + level.highRoundTwoPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersTwo) + ")";
+	else if( numPlayers == 3 )
+		msg = "^1NEW RECORD! ^73 Players: ^2" + level.highRoundThreePlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersThree) + ")";
+	else
+		msg = "^1NEW RECORD! ^74 Players: ^2" + level.highRoundFourPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersFour) + ")";
 	foreach( player in level.players )
-	{
-		player tell( "^1NEW RECORD!" );
-		wait 2;
-
-		if( numPlayers == 1 )
-			player tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + get_current_names_from_ids(level.highRoundPlayersOne) + ")" );
-		else if( numPlayers == 2 ) 
-			player tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersTwo) + ")" );
-		else if( numPlayers == 3 ) 
-			player tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersThree) + ")" );
-		else if( numPlayers == 4 ) 
-			player tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersFour) + ")" );
-	}
+		player tell( msg );
 
 	log_highround_record( 
 		level.highRoundOnePlayer + ";" + 
@@ -284,50 +279,18 @@ gamemodeName( gamemode )
 	return "NA";
 }
 
-high_round_info_giver()
-{
-	highroundinfo = 1;
-	roundmultiplier = 5;
-	level endon( "end_game" );
-
-	while( 1 )
-	{	
-		level waittill( "start_of_round" );
-
-		if( level.round_number == ( highroundinfo * roundmultiplier ))
-		{
-			highroundinfo++;
-			players = get_players();
-			numPlayers = players.size;
-
-			foreach( player in players )
-			{
-				player tell( "^7Current High Round Record:" );
-				wait 2;
-
-				if( numPlayers == 1 )
-					player tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + get_current_names_from_ids(level.highRoundPlayersOne) + ")" );
-				else if( numPlayers == 2 )
-					player tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersTwo) + ")" );
-				else if( numPlayers == 3 )
-					player tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersThree) + ")" );
-				else if( numPlayers == 4 )
-					player tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersFour) + ")" );
-			}
-		}
-	}
-}
-
+// One line on join with all four records; the HUD's BEST row shows the one for
+// the squad size in play.
 high_round_info()
 {
+	self endon( "disconnect" );
 	wait 6;
-	self tell( "^7High Round Records:" );
-	wait 2;
-	self tell( "^21 Player: ^1" + level.highRoundOnePlayer + " ^7(" + get_current_names_from_ids(level.highRoundPlayersOne) + ")" );
-	wait 2;
-	self tell( "^32 Players: ^1" + level.highRoundTwoPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersTwo) + ")" );
-	wait 2;
-	self tell( "^53 Players: ^1" + level.highRoundThreePlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersThree) + ")" );
-	wait 2;
-	self tell( "^64 Players: ^1" + level.highRoundFourPlayers + " ^7(" + get_current_names_from_ids(level.highRoundPlayersFour) + ")" );
+	self tell( "^7Records  1P ^2" + record_or_dash( level.highRoundOnePlayer ) + "^7 | 2P ^2" + record_or_dash( level.highRoundTwoPlayers ) + "^7 | 3P ^2" + record_or_dash( level.highRoundThreePlayers ) + "^7 | 4P ^2" + record_or_dash( level.highRoundFourPlayers ) + "^7  shep.rip" );
+}
+
+record_or_dash( round )
+{
+	if( !isdefined( round ) || round <= 0 )
+		return "-";
+	return "" + round;
 }

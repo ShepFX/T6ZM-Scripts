@@ -21,7 +21,7 @@ deployed name is the one that matters — that is the filename to copy to.
 | `RoundSaver/T6RoundSaverNew.gsc` | `T6RoundSaverNew.gsc` | 11 zombie servers |
 | `Speedrun/T6Speedrun.gsc` | `T6Speedrun.gsc` | 11 zombie servers |
 | `T6PostRoundLockExploit/T6PostRoundLockExploit.gsc` | `T6PostRoundLockVote.gsc` | 11 zombie servers |
-| `Zombie-Counter/CounterHUD.gsc` | `CounterHUD.gsc` | 11 zombie servers (counter, run clock and splits) |
+| `Zombie-Counter/CounterHUD.gsc` | `CounterHUD.gsc` | 11 zombie servers (counter, run clock, record and splits) |
 | `Backspeed/T6Backspeed.gsc` | `T6Backspeed.gsc` | 11 zombie servers |
 | `First-Room-Challenge/zm_buried/T6BuriedMaze.gsc` | `zm_buried/T6BuriedMaze.gsc` | t6zm-first |
 | `MapVote/T6MapVote.gsc` | `T6MapVote.gsc` | t6zm-first |

@@ -7,15 +7,17 @@
 //        ALIVE 9        of those, how many are up on the map right now (smaller, grey)
 //        DOGS 2        only while dogs are alive, or on a dog round
 //     12:34.5           run clock (from round 1, the figure the speedrun boards use)
+//       BEST 38         this map's record for the number of players in the game
+//                       (T6RoundSaverNew's level.highRound*), gold once beaten
 //     ROUND 12  1:23    the round that just ended, for 6 seconds
 //
-// .counter hides/shows the counter, .timer the clock and splits.
+// .counter hides/shows the counter, .timer the clock, BEST and splits.
 //
 // No leaks:
 //   - settext() only ever gets the fixed strings in shud_strings(); every number goes
 //     through setvalue() or the client-side timer, so the configstring table cannot
 //     fill up however long a game runs ("G_FindConfigstringIndex: overflow").
-//   - At most 13 elements per player (no backgrounds), destroyed on disconnect, and
+//   - At most 15 elements per player (no backgrounds), destroyed on disconnect, and
 //     every per-player thread ends on disconnect.
 //   - One level thread counts the enemies for everyone.
 
@@ -54,6 +56,7 @@ shud_strings()
     e settext( ":" );
     e settext( "0" );
     e settext( "ALIVE" );
+    e settext( "BEST" );
     e destroy();
 }
 
@@ -77,6 +80,9 @@ shud_layout_init()
     self.shud_alive_dy = 6;   // its label below the number's top
     self.shud_alive_h = 16;   // the ALIVE row
     self.shud_clock_h = 15;   // the clock row
+    self.shud_best_w = 6.8;   // one digit of the BEST number (scale 1.3)
+    self.shud_best_dy = 4;    // its label below the number's top
+    self.shud_best_h = 14;    // the BEST row
     self.shud_small_w = 5;    // one digit of the small font
 }
 
@@ -286,6 +292,13 @@ shud_build()
     // Run clock: counts up on the client (see t6rt_redraw).
     self.t6rt_total_time = shud_text( self, "right", x, 0, "default", 1.3, 0.95, 0.95, 0.92 );
 
+    // Record for the squad size in play (see shud_best_loop).
+    self.zc_bval = shud_text( self, "right", x, 0, "default", 1.3, 0.74, 0.76, 0.78 );
+    self.zc_bval setvalue( 0 );
+    self.zc_blab = shud_text( self, "right", x, 0, "small", 1.0, 0.74, 0.76, 0.78 );
+    self.zc_blab settext( "BEST" );
+    self.zc_blab.x = x - self.shud_best_w - 5;
+
     // Split: "ROUND 12  1:23". Fixed labels plus setvalue() numbers; the seconds
     // are one number with a separate "0" in front under 10 seconds.
     self.t6rt_split_label = shud_text( self, "right", x, 0, "small", 1.0, 0.86, 0.86, 0.82 );
@@ -320,6 +333,7 @@ shud_build()
     self.zc_zshow = true;
     self.zc_ashow = false;
     self.zc_dshow = false;
+    self.zc_bshow = false;
     self.t6rt_split_showing = false;
     self.t6rt_split_padded = true;
     self.t6rt_seen_generation = -1;
@@ -331,6 +345,7 @@ shud_build()
     self thread shud_counter_loop();
     self thread t6rt_refresh_loop();
     self thread t6rt_split_loop();
+    self thread shud_best_loop();
 }
 
 shud_all_elems()
@@ -342,6 +357,8 @@ shud_all_elems()
     elems[elems.size] = self.zc_alab;
     elems[elems.size] = self.zc_dval;
     elems[elems.size] = self.zc_dlab;
+    elems[elems.size] = self.zc_bval;
+    elems[elems.size] = self.zc_blab;
     if ( isdefined( self.t6rt_total_time ) )
         elems[elems.size] = self.t6rt_total_time;
     for ( i = 0; i < self.t6rt_split_elems.size; i++ )
@@ -364,7 +381,7 @@ shud_cleanup()
 }
 
 // Puts every row where it belongs for what is on show, and fades each element
-// to its alpha. Rows stack from the top: zombies, alive, dogs, clock, split.
+// to its alpha. Rows stack from the top: zombies, alive, dogs, clock, best, split.
 shud_refresh( t )
 {
     y = self.shud_y;
@@ -417,6 +434,17 @@ shud_refresh( t )
         shud_fade( self.t6rt_total_time, ca, t );
     }
     y += self.shud_clock_h;
+
+    ba = 0;
+    if ( self.t6rt_enabled && self.zc_bshow )
+    {
+        self.zc_bval.y = y;
+        self.zc_blab.y = y + self.shud_best_dy;
+        y += self.shud_best_h;
+        ba = 1;
+    }
+    shud_fade( self.zc_bval, ba * 0.9, t );
+    shud_fade( self.zc_blab, ba * 0.7, t );
 
     for ( i = 0; i < self.t6rt_split_elems.size; i++ )
     {
@@ -512,6 +540,71 @@ shud_counter_loop()
                 self.zc_dval thread shud_pulse( self );
         }
     }
+}
+
+// BEST: the record T6RoundSaverNew holds for as many players as are in the game
+// now, so it follows people joining and leaving. Hidden where there is no record
+// script, no record yet, or more than 4 players. Gold once this game is past it.
+shud_best_loop()
+{
+    self endon( "disconnect" );
+    level endon( "end_game" );
+
+    prev_best = -1;
+    prev_beat = -1;
+
+    for ( ;; )
+    {
+        wait 0.5;
+
+        best = shud_best_for( get_players().size );
+        show = best > 0;
+        if ( show != self.zc_bshow )
+        {
+            self.zc_bshow = show;
+            self shud_refresh( 0.25 );
+        }
+        if ( !show )
+            continue;
+
+        if ( best != prev_best )
+        {
+            prev_best = best;
+            self.zc_bval setvalue( best );
+            self.zc_blab.x = self.shud_x - shud_digits( best ) * self.shud_best_w - 5;
+        }
+
+        beat = 0;
+        if ( isdefined( level.round_number ) && level.round_number > best )
+            beat = 1;
+        if ( beat != prev_beat )
+        {
+            prev_beat = beat;
+            if ( beat )
+            {
+                self.zc_bval.color = ( 1.0, 0.80, 0.25 );
+                self.zc_blab.color = ( 1.0, 0.80, 0.25 );
+            }
+            else
+            {
+                self.zc_bval.color = ( 0.74, 0.76, 0.78 );
+                self.zc_blab.color = ( 0.74, 0.76, 0.78 );
+            }
+        }
+    }
+}
+
+shud_best_for( n )
+{
+    if ( n == 1 && isdefined( level.highRoundOnePlayer ) )
+        return level.highRoundOnePlayer;
+    if ( n == 2 && isdefined( level.highRoundTwoPlayers ) )
+        return level.highRoundTwoPlayers;
+    if ( n == 3 && isdefined( level.highRoundThreePlayers ) )
+        return level.highRoundThreePlayers;
+    if ( n == 4 && isdefined( level.highRoundFourPlayers ) )
+        return level.highRoundFourPlayers;
+    return 0;
 }
 
 // A quick tick on the number when it changes.
