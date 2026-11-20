@@ -62,6 +62,7 @@ init()
 
 	level thread gs_watch_players();
 	level thread gs_watch_end();
+	level thread gs_live_stats();
 	level thread gs_watch_drops();
 	level thread gs_watch_machines();
 	level thread gs_watch_box_spins();
@@ -315,9 +316,11 @@ gs_radar()
 {
 	if ( getDvar( "fs_game" ) != "" )
 		return;
+	// [Shep 8 Nov] twice a second for a smoother, closer radar, but a player who hasn't moved, turned or
+	// changed state is only re-sent every 5 seconds, so the logs don't grow
 	for ( ;; )
 	{
-		wait 1;
+		wait 0.5;
 		if ( gs_game_over() )
 			return;
 		players = get_players();
@@ -334,8 +337,13 @@ gs_radar()
 				state = "down";
 			else if ( isDefined( p.afterlife ) && p.afterlife )
 				state = "afterlife";
-			logPrint( "LiveRadar;" + gs_hex( p getGuid() ) + ";" + p.origin + ";" + p getPlayerAngles() + ";" + state
-			        + ";0;0;0;none;" + gs_num( p.health ) + ";" + gs_num( alive ) + ";0\n" );
+			line = gs_hex( p getGuid() ) + ";" + p.origin + ";" + p getPlayerAngles() + ";" + state
+			        + ";0;0;0;none;" + gs_num( p.health ) + ";" + gs_num( alive ) + ";0";
+			if ( isDefined( p.gs_radar_line ) && p.gs_radar_line == line && getTime() - p.gs_radar_at < 5000 )
+				continue;
+			p.gs_radar_line = line;
+			p.gs_radar_at = getTime();
+			logPrint( "LiveRadar;" + line + "\n" );
 		}
 	}
 }
@@ -610,8 +618,11 @@ gs_map_token()
 {
 	gamemode = getDvar( "ui_gametype" );
 	map = gs_map_name( level.script );
-	if ( level.script == "zm_transit" && gamemode == "zsurvival" )
+	if ( level.script == "zm_transit" && ( gamemode == "zsurvival" || gamemode == "zstandard" ) )
 		map = gs_start_location_name( getDvar( "ui_zm_mapstartlocation" ) );
+	// Shep vote servers: Stairway to Hell (mods/zm_StairwayToHell) is zm_transit classic too; own board
+	if ( isSubStr( toLower( getDvar( "fs_game" ) ), "stairway" ) )
+		map = "Stairway";
 	return map + gs_gamemode_name( gamemode );
 }
 
@@ -648,6 +659,8 @@ gs_map_name( map )
 		return "Origins";
 	else if ( map == "zm_transit" )
 		return "Tranzit";
+	else if ( map == "zm_point187" )
+		return "Point187";
 	return "NA";
 }
 
@@ -664,4 +677,29 @@ gs_gamemode_name( gamemode )
 	else if ( gamemode == "zcleansed" )
 		return "Turned";
 	return "NA";
+}
+
+// [Shep 20 Nov 2026] live scoreboard for the site: every 3 seconds, one line per player whose numbers
+// changed (and every 30 seconds anyway) into the game log for the core:
+//     ZmLive;<guid>;<points>;<kills>;<downs>;<revives>;<headshots>
+gs_live_stats()
+{
+	for ( ;; )
+	{
+		wait 3;
+		players = get_players();
+		for ( i = 0; i < players.size; i++ )
+		{
+			p = players[i];
+			if ( !isDefined( p ) )
+				continue;
+			line = "" + p getGuid() + ";" + gs_num( p.score ) + ";" + gs_num( p.kills ) + ";" + gs_num( p.downs )
+				+ ";" + gs_num( p.revives ) + ";" + gs_num( p.headshots );
+			if ( isDefined( p.gs_live_line ) && p.gs_live_line == line && getTime() - p.gs_live_at < 30000 )
+				continue;
+			p.gs_live_line = line;
+			p.gs_live_at = getTime();
+			logPrint( "ZmLive;" + line + "\n" );
+		}
+	}
 }
